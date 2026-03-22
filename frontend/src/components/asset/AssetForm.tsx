@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Plus, Trash2, ChevronDown, ChevronRight, Eye, EyeOff, FolderOpen, Loader2 } from "lucide-react";
+import { Plus, Trash2, ChevronDown, ChevronRight, Eye, EyeOff, FolderOpen, Loader2, Folder, Server } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { TreeSelect, type TreeNode } from "@/components/ui/tree-select";
 import { IconPicker } from "@/components/asset/IconPicker";
 import { useAssetStore } from "@/stores/assetStore";
 import { asset_entity, ssh_key_entity } from "../../../wailsjs/go/models";
@@ -89,6 +90,9 @@ export function AssetForm({
   const [icon, setIcon] = useState("server");
   const [saving, setSaving] = useState(false);
 
+  // Connection type
+  const [connectionType, setConnectionType] = useState<"direct" | "jumphost" | "proxy">("direct");
+
   // Auth fields
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -103,7 +107,6 @@ export function AssetForm({
   const [scanningKeys, setScanningKeys] = useState(false);
   const [jumpHostId, setJumpHostId] = useState(0);
   const [forwardedPorts, setForwardedPorts] = useState<ForwardedPort[]>([]);
-  const [proxyEnabled, setProxyEnabled] = useState(false);
   const [proxyType, setProxyType] = useState("socks5");
   const [proxyHost, setProxyHost] = useState("");
   const [proxyPort, setProxyPort] = useState(1080);
@@ -118,19 +121,56 @@ export function AssetForm({
     (a) => a.Type === "ssh" && a.ID !== editAsset?.ID
   );
 
-  // Build group tree for select
-  const buildGroupOptions = () => {
-    const options: { id: number; name: string; depth: number }[] = [];
-    const addChildren = (parentId: number, depth: number) => {
-      for (const g of groups.filter((g) => (g.ParentID || 0) === parentId)) {
-        options.push({ id: g.ID, name: g.Name, depth });
-        addChildren(g.ID, depth + 1);
-      }
+  const folderIcon = <Folder className="h-3.5 w-3.5 text-muted-foreground" />;
+  const serverIcon = <Server className="h-3.5 w-3.5 text-muted-foreground" />;
+
+  // Build group tree for TreeSelect
+  const buildGroupTree = (): TreeNode[] => {
+    const buildChildren = (parentId: number): TreeNode[] => {
+      return groups
+        .filter((g) => (g.ParentID || 0) === parentId)
+        .map((g) => ({
+          id: g.ID,
+          label: g.Name,
+          icon: folderIcon,
+          children: buildChildren(g.ID),
+        }));
     };
-    addChildren(0, 0);
-    return options;
+    return buildChildren(0);
   };
-  const groupOptions = buildGroupOptions();
+  const groupTree = buildGroupTree();
+
+  // Build jump host tree: groups (non-selectable) containing SSH assets (selectable)
+  const buildJumpHostTree = (): TreeNode[] => {
+    const nodes: TreeNode[] = [];
+    // Grouped assets
+    const buildGroupWithAssets = (parentId: number): TreeNode[] => {
+      return groups
+        .filter((g) => (g.ParentID || 0) === parentId)
+        .map((g) => {
+          const childGroups = buildGroupWithAssets(g.ID);
+          const childAssets: TreeNode[] = sshAssets
+            .filter((a) => a.GroupID === g.ID)
+            .map((a) => ({ id: a.ID, label: a.Name, icon: serverIcon }));
+          return {
+            id: -g.ID, // negative to avoid collision with asset IDs
+            label: g.Name,
+            icon: folderIcon,
+            selectable: false,
+            children: [...childGroups, ...childAssets],
+          };
+        })
+        .filter((g) => g.children && g.children.length > 0);
+    };
+    nodes.push(...buildGroupWithAssets(0));
+    // Ungrouped assets
+    const ungrouped = sshAssets.filter((a) => !a.GroupID || a.GroupID === 0);
+    for (const a of ungrouped) {
+      nodes.push({ id: a.ID, label: a.Name, icon: serverIcon });
+    }
+    return nodes;
+  };
+  const jumpHostTree = buildJumpHostTree();
 
   // Load managed keys and scan local keys when dialog opens
   useEffect(() => {
@@ -175,28 +215,33 @@ export function AssetForm({
           setSelectedKeyPaths(cfg.private_keys || []);
           setJumpHostId(cfg.jump_host_id || 0);
           setForwardedPorts(cfg.forwarded_ports || []);
+
+          // Derive connection type
+          if (cfg.jump_host_id) {
+            setConnectionType("jumphost");
+          } else if (cfg.proxy) {
+            setConnectionType("proxy");
+          } else {
+            setConnectionType("direct");
+          }
+
           if (cfg.proxy) {
-            setProxyEnabled(true);
             setProxyType(cfg.proxy.type || "socks5");
             setProxyHost(cfg.proxy.host || "");
             setProxyPort(cfg.proxy.port || 1080);
             setProxyUsername(cfg.proxy.username || "");
             setProxyPassword(cfg.proxy.password || "");
           } else {
-            setProxyEnabled(false);
             setProxyType("socks5");
             setProxyHost("");
             setProxyPort(1080);
             setProxyUsername("");
             setProxyPassword("");
           }
-          // Show advanced if any advanced field is set
+
+          // Show advanced if forwarded ports exist
           setShowAdvanced(
-            !!(
-              cfg.jump_host_id ||
-              (cfg.forwarded_ports && cfg.forwarded_ports.length > 0) ||
-              cfg.proxy
-            )
+            !!(cfg.forwarded_ports && cfg.forwarded_ports.length > 0)
           );
         } catch {
           resetSSHFields();
@@ -222,9 +267,9 @@ export function AssetForm({
     setKeySource("managed");
     setKeyId(0);
     setSelectedKeyPaths([]);
+    setConnectionType("direct");
     setJumpHostId(0);
     setForwardedPorts([]);
-    setProxyEnabled(false);
     setProxyType("socks5");
     setProxyHost("");
     setProxyPort(1080);
@@ -252,7 +297,6 @@ export function AssetForm({
       }
     } else if (authType === "password" && encryptedPassword && !password) {
       // Keep existing encrypted password if user didn't change it
-      // But if password is empty, keep it as-is (was already empty)
     }
 
     // Save key config
@@ -266,9 +310,11 @@ export function AssetForm({
       }
     }
 
-    if (jumpHostId > 0) sshConfig.jump_host_id = jumpHostId;
-    if (forwardedPorts.length > 0) sshConfig.forwarded_ports = forwardedPorts;
-    if (proxyEnabled && proxyHost) {
+    // Connection type specific fields
+    if (connectionType === "jumphost" && jumpHostId > 0) {
+      sshConfig.jump_host_id = jumpHostId;
+    }
+    if (connectionType === "proxy" && proxyHost) {
       sshConfig.proxy = {
         type: proxyType,
         host: proxyHost,
@@ -277,6 +323,8 @@ export function AssetForm({
         password: proxyPassword || undefined,
       };
     }
+
+    if (forwardedPorts.length > 0) sshConfig.forwarded_ports = forwardedPorts;
 
     const config = JSON.stringify(sshConfig);
 
@@ -349,25 +397,108 @@ export function AssetForm({
             <IconPicker value={icon} onChange={setIcon} type="asset" />
           </div>
 
-          {/* Host + Port */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label>{t("asset.host")}</Label>
+          {/* Connection Type + Host + Port */}
+          <div className="grid gap-2">
+            <Label>{t("asset.host")}</Label>
+            <div className="flex gap-2">
+              <Select
+                value={connectionType}
+                onValueChange={(v) => setConnectionType(v as "direct" | "jumphost" | "proxy")}
+              >
+                <SelectTrigger className="w-[100px] shrink-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="direct">{t("asset.connectionDirect")}</SelectItem>
+                  <SelectItem value="jumphost">{t("asset.connectionJumpHost")}</SelectItem>
+                  <SelectItem value="proxy">{t("asset.connectionProxy")}</SelectItem>
+                </SelectContent>
+              </Select>
               <Input
+                className="flex-1"
                 value={host}
                 onChange={(e) => setHost(e.target.value)}
                 placeholder="192.168.1.1"
               />
-            </div>
-            <div className="grid gap-2">
-              <Label>{t("asset.port")}</Label>
               <Input
+                className="w-[80px] shrink-0"
                 type="number"
                 value={port}
                 onChange={(e) => setPort(Number(e.target.value))}
               />
             </div>
           </div>
+
+          {/* Jump Host selector (when connectionType is jumphost) */}
+          {connectionType === "jumphost" && (
+            <div className="grid gap-2">
+              <Label>{t("asset.selectJumpHost")}</Label>
+              <TreeSelect
+                value={jumpHostId}
+                onValueChange={setJumpHostId}
+                nodes={jumpHostTree}
+                placeholder={t("asset.jumpHostNone")}
+                placeholderIcon={serverIcon}
+              />
+            </div>
+          )}
+
+          {/* Proxy config (when connectionType is proxy) */}
+          {connectionType === "proxy" && (
+            <div className="grid gap-3 border rounded-lg p-3">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="grid gap-1">
+                  <Label className="text-xs">{t("asset.proxyType")}</Label>
+                  <Select value={proxyType} onValueChange={setProxyType}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="socks5">SOCKS5</SelectItem>
+                      <SelectItem value="socks4">SOCKS4</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-xs">{t("asset.proxyHost")}</Label>
+                  <Input
+                    className="h-8 text-xs"
+                    value={proxyHost}
+                    onChange={(e) => setProxyHost(e.target.value)}
+                    placeholder="127.0.0.1"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-xs">{t("asset.proxyPort")}</Label>
+                  <Input
+                    className="h-8 text-xs"
+                    type="number"
+                    value={proxyPort}
+                    onChange={(e) => setProxyPort(Number(e.target.value))}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="grid gap-1">
+                  <Label className="text-xs">{t("asset.proxyUsername")}</Label>
+                  <Input
+                    className="h-8 text-xs"
+                    value={proxyUsername}
+                    onChange={(e) => setProxyUsername(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-xs">{t("asset.proxyPassword")}</Label>
+                  <Input
+                    className="h-8 text-xs"
+                    type="password"
+                    value={proxyPassword}
+                    onChange={(e) => setProxyPassword(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Username + AuthType */}
           <div className="grid grid-cols-2 gap-4">
@@ -547,7 +678,6 @@ export function AssetForm({
                         const info = await SelectSSHKeyFile();
                         if (info && !selectedKeyPaths.includes(info.path)) {
                           setSelectedKeyPaths([...selectedKeyPaths, info.path]);
-                          // 如果不在发现列表中，添加到 localKeys 方便显示信息
                           if (!localKeys.some((k) => k.path === info.path)) {
                             setLocalKeys([...localKeys, info]);
                           }
@@ -565,25 +695,16 @@ export function AssetForm({
             </div>
           )}
 
-          {/* Group */}
+          {/* Group - Tree Selector */}
           <div className="grid gap-2">
             <Label>{t("asset.group")}</Label>
-            <Select
-              value={String(groupId)}
-              onValueChange={(v) => setGroupId(Number(v))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="0">{t("asset.ungrouped")}</SelectItem>
-                {groupOptions.map((g) => (
-                  <SelectItem key={g.id} value={String(g.id)}>
-                    {"  ".repeat(g.depth) + g.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <TreeSelect
+              value={groupId}
+              onValueChange={setGroupId}
+              nodes={groupTree}
+              placeholder={t("asset.ungrouped")}
+              placeholderIcon={folderIcon}
+            />
           </div>
 
           {/* Description */}
@@ -596,7 +717,7 @@ export function AssetForm({
             />
           </div>
 
-          {/* Advanced section toggle */}
+          {/* Advanced section - only forwarded ports */}
           <button
             type="button"
             className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
@@ -607,102 +728,11 @@ export function AssetForm({
             ) : (
               <ChevronRight className="h-3.5 w-3.5" />
             )}
-            {t("asset.proxy")} / {t("asset.jumpHost")} / {t("asset.forwardedPorts")}
+            {t("asset.forwardedPorts")}
           </button>
 
           {showAdvanced && (
             <div className="grid gap-4 border rounded-lg p-3">
-              {/* Jump Host */}
-              <div className="grid gap-2">
-                <Label>{t("asset.jumpHost")}</Label>
-                <Select
-                  value={String(jumpHostId)}
-                  onValueChange={(v) => setJumpHostId(Number(v))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0">{t("asset.jumpHostNone")}</SelectItem>
-                    {sshAssets.map((a) => (
-                      <SelectItem key={a.ID} value={String(a.ID)}>
-                        {a.Name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Proxy */}
-              <div className="grid gap-2">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={proxyEnabled}
-                    onChange={(e) => setProxyEnabled(e.target.checked)}
-                    className="rounded"
-                  />
-                  <Label className="cursor-pointer" onClick={() => setProxyEnabled(!proxyEnabled)}>
-                    {t("asset.proxy")}
-                  </Label>
-                </div>
-                {proxyEnabled && (
-                  <div className="grid gap-3 pl-4">
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="grid gap-1">
-                        <Label className="text-xs">{t("asset.proxyType")}</Label>
-                        <Select value={proxyType} onValueChange={setProxyType}>
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="socks5">SOCKS5</SelectItem>
-                            <SelectItem value="socks4">SOCKS4</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="grid gap-1">
-                        <Label className="text-xs">{t("asset.proxyHost")}</Label>
-                        <Input
-                          className="h-8 text-xs"
-                          value={proxyHost}
-                          onChange={(e) => setProxyHost(e.target.value)}
-                          placeholder="127.0.0.1"
-                        />
-                      </div>
-                      <div className="grid gap-1">
-                        <Label className="text-xs">{t("asset.proxyPort")}</Label>
-                        <Input
-                          className="h-8 text-xs"
-                          type="number"
-                          value={proxyPort}
-                          onChange={(e) => setProxyPort(Number(e.target.value))}
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="grid gap-1">
-                        <Label className="text-xs">{t("asset.proxyUsername")}</Label>
-                        <Input
-                          className="h-8 text-xs"
-                          value={proxyUsername}
-                          onChange={(e) => setProxyUsername(e.target.value)}
-                        />
-                      </div>
-                      <div className="grid gap-1">
-                        <Label className="text-xs">{t("asset.proxyPassword")}</Label>
-                        <Input
-                          className="h-8 text-xs"
-                          type="password"
-                          value={proxyPassword}
-                          onChange={(e) => setProxyPassword(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
               {/* Forwarded Ports */}
               <div className="grid gap-2">
                 <div className="flex items-center justify-between">

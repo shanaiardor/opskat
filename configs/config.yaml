@@ -1,7 +1,0 @@
-db:
-    debug: false
-    driver: sqlite
-    dsn: ops-cat.db
-debug: true
-env: DEV
-source: file

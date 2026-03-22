@@ -74,6 +74,10 @@ export function GetSSHKeyPublicKey(arg1) {
   return window['go']['main']['App']['GetSSHKeyPublicKey'](arg1);
 }
 
+export function GetSSHKeyUsage(arg1) {
+  return window['go']['main']['App']['GetSSHKeyUsage'](arg1);
+}
+
 export function ImportFromGist(arg1, arg2, arg3) {
   return window['go']['main']['App']['ImportFromGist'](arg1, arg2, arg3);
 }
@@ -120,6 +124,26 @@ export function PreviewTabbyConfig() {
 
 export function ResizeSSH(arg1, arg2, arg3) {
   return window['go']['main']['App']['ResizeSSH'](arg1, arg2, arg3);
+}
+
+export function SFTPCancelTransfer(arg1) {
+  return window['go']['main']['App']['SFTPCancelTransfer'](arg1);
+}
+
+export function SFTPDownload(arg1, arg2) {
+  return window['go']['main']['App']['SFTPDownload'](arg1, arg2);
+}
+
+export function SFTPDownloadDir(arg1, arg2) {
+  return window['go']['main']['App']['SFTPDownloadDir'](arg1, arg2);
+}
+
+export function SFTPUpload(arg1, arg2) {
+  return window['go']['main']['App']['SFTPUpload'](arg1, arg2);
+}
+
+export function SFTPUploadDir(arg1, arg2) {
+  return window['go']['main']['App']['SFTPUploadDir'](arg1, arg2);
 }
 
 export function SaveCredential(arg1) {

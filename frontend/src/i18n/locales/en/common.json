@@ -87,7 +87,13 @@
     "scanningKeys": "Scanning...",
     "browseKeyFile": "Browse...",
     "selectedKeys": "Selected Keys",
-    "keyFingerprint": "Fingerprint"
+    "keyFingerprint": "Fingerprint",
+    "connectionType": "Connection",
+    "connectionDirect": "Direct",
+    "connectionJumpHost": "Jump Host",
+    "connectionProxy": "Proxy",
+    "selectJumpHost": "Select Jump Host",
+    "selectGroup": "Select Group"
   },
   "sshKey": {
     "title": "SSH Keys",
@@ -266,5 +272,25 @@
       "brightCyan": "Bright Cyan",
       "brightWhite": "Bright White"
     }
+  },
+  "sftp": {
+    "upload": "Upload File",
+    "uploadDir": "Upload Folder",
+    "download": "Download File",
+    "downloadDir": "Download Folder",
+    "remotePath": "Remote Path",
+    "remotePathPlaceholder": "Enter remote path, e.g. /home/user/",
+    "uploadTo": "Upload to Remote",
+    "downloadFrom": "Download from Remote",
+    "transferring": "Transferring...",
+    "speed": "Speed",
+    "filesProgress": "{{completed}}/{{total}} files",
+    "cancelled": "Cancelled",
+    "completed": "Transfer complete",
+    "failed": "Transfer failed",
+    "cancelTransfer": "Cancel transfer",
+    "clear": "Clear",
+    "noActiveSession": "Please connect an SSH session first",
+    "activeTransfers": "{{count}} active transfer(s)"
   }
 }

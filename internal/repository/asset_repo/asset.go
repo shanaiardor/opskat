@@ -17,6 +17,7 @@ type AssetRepo interface {
 	Delete(ctx context.Context, id int64) error
 	MoveToGroup(ctx context.Context, fromGroupID, toGroupID int64) error
 	DeleteByGroupID(ctx context.Context, groupID int64) error
+	FindBySSHKeyID(ctx context.Context, keyID int64) ([]*asset_entity.Asset, error)
 }
 
 // ListOptions 列表查询选项
@@ -91,4 +92,13 @@ func (r *assetRepo) DeleteByGroupID(ctx context.Context, groupID int64) error {
 	return db.Ctx(ctx).Model(&asset_entity.Asset{}).
 		Where("group_id = ? AND status = ?", groupID, asset_entity.StatusActive).
 		Update("status", asset_entity.StatusDeleted).Error
+}
+
+func (r *assetRepo) FindBySSHKeyID(ctx context.Context, keyID int64) ([]*asset_entity.Asset, error) {
+	var assets []*asset_entity.Asset
+	if err := db.Ctx(ctx).Where("status = ? AND json_extract(config, '$.key_id') = ?", asset_entity.StatusActive, keyID).
+		Find(&assets).Error; err != nil {
+		return nil, err
+	}
+	return assets, nil
 }

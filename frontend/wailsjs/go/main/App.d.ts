@@ -44,6 +44,8 @@ export function GetLanguage():Promise<string>;
 
 export function GetSSHKeyPublicKey(arg1:number):Promise<string>;
 
+export function GetSSHKeyUsage(arg1:number):Promise<Array<string>>;
+
 export function ImportFromGist(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function ImportSSHKeyFile(arg1:string,arg2:string):Promise<ssh_key_entity.SSHKey>;
@@ -67,6 +69,16 @@ export function LoadCredential(arg1:string):Promise<string>;
 export function PreviewTabbyConfig():Promise<import_svc.PreviewResult>;
 
 export function ResizeSSH(arg1:string,arg2:number,arg3:number):Promise<void>;
+
+export function SFTPCancelTransfer(arg1:string):Promise<void>;
+
+export function SFTPDownload(arg1:string,arg2:string):Promise<string>;
+
+export function SFTPDownloadDir(arg1:string,arg2:string):Promise<string>;
+
+export function SFTPUpload(arg1:string,arg2:string):Promise<string>;
+
+export function SFTPUploadDir(arg1:string,arg2:string):Promise<string>;
 
 export function SaveCredential(arg1:string):Promise<string>;
 

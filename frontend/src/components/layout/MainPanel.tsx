@@ -3,6 +3,7 @@ import { X, TerminalSquare, Cat } from "lucide-react";
 import { useFullscreen } from "@/hooks/useFullscreen";
 import { AssetDetail } from "@/components/asset/AssetDetail";
 import { SplitPane } from "@/components/terminal/SplitPane";
+import { TerminalToolbar } from "@/components/terminal/TerminalToolbar";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { SSHKeyManager } from "@/components/settings/SSHKeyManager";
 import { useTerminalStore } from "@/stores/terminalStore";
@@ -113,81 +114,95 @@ export function MainPanel({
         </div>
       )}
 
-      {/* Terminal content — always mounted, use visibility to preserve xterm state */}
-      <div
-        className="flex-1 relative"
-        style={{
-          display: isHome ? undefined : "none",
-        }}
-      >
-        {tabs.map((tab) => (
-          <div
-            key={tab.id}
-            className="absolute inset-0"
-            style={{
-              visibility: activeTabId === tab.id ? "visible" : "hidden",
-              pointerEvents: activeTabId === tab.id ? "auto" : "none",
-            }}
-          >
-            <SplitPane
-              node={tab.splitTree}
-              tabId={tab.id}
-              isTabActive={activeTabId === tab.id}
-              activePaneId={tab.activePaneId}
-              showFocusRing={tab.splitTree.type === "split"}
-              path={[]}
-            />
-          </div>
-        ))}
-
-        {showAssetInfo && (
-          <AssetDetail
-            asset={selectedAsset}
-            isConnecting={connectingAssetIds.has(selectedAsset.ID)}
-            onEdit={() => onEditAsset(selectedAsset)}
-            onDelete={() => onDeleteAsset(selectedAsset.ID)}
-            onConnect={() => onConnectAsset(selectedAsset)}
-          />
-        )}
-
-        {!showTerminal && !showAssetInfo && (
-          <div className="flex items-center justify-center h-full bg-gradient-to-br from-background via-background to-primary/5">
-            <div className="text-center space-y-4">
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
-                <Cat className="h-8 w-8 text-primary" />
+      {/* Content area — all pages overlap here, terminal always mounted to avoid xterm flash */}
+      <div className="flex-1 relative min-h-0 overflow-hidden">
+        {/* Home: terminal content — use visibility instead of display to preserve xterm layout */}
+        <div
+          className="absolute inset-0"
+          style={{
+            visibility: isHome ? "visible" : "hidden",
+            pointerEvents: isHome ? "auto" : "none",
+          }}
+        >
+          {tabs.map((tab) => {
+            const isActive = isHome && activeTabId === tab.id;
+            return (
+              <div
+                key={tab.id}
+                className="absolute inset-0 flex flex-col"
+                style={{
+                  visibility: isActive ? "visible" : "hidden",
+                  pointerEvents: isActive ? "auto" : "none",
+                }}
+              >
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <SplitPane
+                    node={tab.splitTree}
+                    tabId={tab.id}
+                    isTabActive={isActive}
+                    activePaneId={tab.activePaneId}
+                    showFocusRing={tab.splitTree.type === "split"}
+                    path={[]}
+                  />
+                </div>
+                <TerminalToolbar tabId={tab.id} />
               </div>
-              <div className="space-y-1">
-                <h2 className="text-2xl font-semibold tracking-tight">
-                  {t("app.title")}
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  {t("app.subtitle")}
+            );
+          })}
+
+          {showAssetInfo && (
+            <AssetDetail
+              asset={selectedAsset}
+              isConnecting={connectingAssetIds.has(selectedAsset.ID)}
+              onEdit={() => onEditAsset(selectedAsset)}
+              onDelete={() => onDeleteAsset(selectedAsset.ID)}
+              onConnect={() => onConnectAsset(selectedAsset)}
+            />
+          )}
+
+          {!showTerminal && !showAssetInfo && (
+            <div className="flex items-center justify-center h-full bg-gradient-to-br from-background via-background to-primary/5">
+              <div className="text-center space-y-4">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+                  <Cat className="h-8 w-8 text-primary" />
+                </div>
+                <div className="space-y-1">
+                  <h2 className="text-2xl font-semibold tracking-tight">
+                    {t("app.title")}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {t("app.subtitle")}
+                  </p>
+                </div>
+                <p className="text-xs text-muted-foreground/60">
+                  {t("app.hint")}
                 </p>
               </div>
-              <p className="text-xs text-muted-foreground/60">
-                {t("app.hint")}
-              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Settings page */}
+        {activePage === "settings" && (
+          <div className="absolute inset-0 bg-background">
+            <SettingsPage />
+          </div>
+        )}
+
+        {/* SSH Keys page */}
+        {activePage === "sshkeys" && (
+          <div className="absolute inset-0 bg-background flex flex-col">
+            <div className="px-4 py-3 border-b">
+              <h2 className="font-semibold">{t("nav.sshKeys")}</h2>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="max-w-4xl mx-auto">
+                <SSHKeyManager />
+              </div>
             </div>
           </div>
         )}
       </div>
-
-      {/* Settings page */}
-      {activePage === "settings" && <SettingsPage />}
-
-      {/* SSH Keys page */}
-      {activePage === "sshkeys" && (
-        <div className="flex flex-col flex-1">
-          <div className="px-4 py-3 border-b">
-            <h2 className="font-semibold">{t("nav.sshKeys")}</h2>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4">
-            <div className="max-w-4xl mx-auto">
-              <SSHKeyManager />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

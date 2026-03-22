@@ -69,6 +69,11 @@ func (s *Session) Close() {
 	}
 }
 
+// Client 返回底层 SSH Client（用于 SFTP 等）
+func (s *Session) Client() *ssh.Client {
+	return s.client
+}
+
 // IsClosed 检查是否已关闭
 func (s *Session) IsClosed() bool {
 	s.mu.Lock()

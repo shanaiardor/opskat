@@ -16,6 +16,7 @@ import (
 
 	"github.com/cago-frame/cago"
 	"github.com/cago-frame/cago/configs"
+	"github.com/cago-frame/cago/configs/memory"
 	"github.com/cago-frame/cago/database/db"
 	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/wailsapp/wails/v2"
@@ -53,12 +54,17 @@ func main() {
 		log.Fatalf("创建数据目录失败: %v", err)
 	}
 
-	cfg, err := configs.NewConfig("ops-cat")
+	cfg, err := configs.NewConfig("ops-cat", configs.WithSource(memory.NewSource(map[string]interface{}{
+		"db": map[string]interface{}{
+			"driver": "sqlite",
+			"dsn":    filepath.Join(dataDir, "ops-cat.db"),
+		},
+	})))
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)
 	}
 
-	// 手动初始化日志（路径需要动态指向数据目录）
+	// 初始化日志
 	zapLogger, err := logger.New(
 		logger.Level("info"),
 		logger.AppendCore(logger.NewFileCore(logger.ToLevel("info"), filepath.Join(dataDir, "logs", "ops-cat.log"))),
@@ -69,7 +75,7 @@ func main() {
 	}
 	logger.SetLogger(zapLogger)
 
-	// 初始化数据库（直接引入 db 包，避免 component 包拉入大量未使用依赖）
+	// 初始化数据库
 	cago.New(ctx, cfg).
 		Registry(db.Database())
 

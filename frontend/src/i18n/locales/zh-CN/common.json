@@ -87,7 +87,13 @@
     "scanningKeys": "正在扫描...",
     "browseKeyFile": "浏览...",
     "selectedKeys": "已选密钥",
-    "keyFingerprint": "指纹"
+    "keyFingerprint": "指纹",
+    "connectionType": "连接方式",
+    "connectionDirect": "直连",
+    "connectionJumpHost": "跳板机",
+    "connectionProxy": "代理",
+    "selectJumpHost": "选择跳板机",
+    "selectGroup": "选择分组"
   },
   "sshKey": {
     "title": "SSH 密钥",
@@ -266,5 +272,25 @@
       "brightCyan": "亮青",
       "brightWhite": "亮白"
     }
+  },
+  "sftp": {
+    "upload": "上传文件",
+    "uploadDir": "上传文件夹",
+    "download": "下载文件",
+    "downloadDir": "下载文件夹",
+    "remotePath": "远程路径",
+    "remotePathPlaceholder": "输入远程路径，如 /home/user/",
+    "uploadTo": "上传到远程",
+    "downloadFrom": "从远程下载",
+    "transferring": "传输中...",
+    "speed": "速度",
+    "filesProgress": "{{completed}}/{{total}} 个文件",
+    "cancelled": "已取消",
+    "completed": "传输完成",
+    "failed": "传输失败",
+    "cancelTransfer": "取消传输",
+    "clear": "清除",
+    "noActiveSession": "请先连接 SSH 会话",
+    "activeTransfers": "{{count}} 个传输中"
   }
 }

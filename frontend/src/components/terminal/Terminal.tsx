@@ -122,10 +122,11 @@ export function Terminal({ sessionId, active }: TerminalProps) {
     activeRef.current = active;
   }, [active]);
 
-  // 当 tab 切换回来时聚焦（尺寸由 visibility 保持，无需 refit）
+  // 当切换回来时 refit 并聚焦（页面切换期间容器尺寸可能变化）
   useEffect(() => {
     if (active) {
       requestAnimationFrame(() => {
+        fitAddonRef.current?.fit();
         termRef.current?.focus();
       });
     }

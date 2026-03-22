@@ -21,6 +21,7 @@ import (
 	"ops-cat/internal/service/backup_svc"
 	"ops-cat/internal/service/credential_svc"
 	"ops-cat/internal/service/import_svc"
+	"ops-cat/internal/service/sftp_svc"
 	"ops-cat/internal/service/ssh_key_svc"
 	"ops-cat/internal/service/ssh_svc"
 
@@ -34,15 +35,18 @@ type App struct {
 	ctx              context.Context
 	lang             string
 	sshManager       *ssh_svc.Manager
+	sftpService      *sftp_svc.Service
 	aiAgent          *ai.Agent
 	githubAuthCancel context.CancelFunc
 }
 
 // NewApp 创建App实例
 func NewApp() *App {
+	mgr := ssh_svc.NewManager()
 	return &App{
-		lang:       "zh-cn",
-		sshManager: ssh_svc.NewManager(),
+		lang:        "zh-cn",
+		sshManager:  mgr,
+		sftpService: sftp_svc.NewService(mgr),
 	}
 }
 
@@ -297,6 +301,163 @@ func (a *App) DisconnectSSH(sessionID string) {
 	a.sshManager.Disconnect(sessionID)
 }
 
+// --- SFTP 文件传输 ---
+
+// SFTPUpload 上传文件：弹出本地文件选择 → 上传到 remotePath
+func (a *App) SFTPUpload(sessionID, remotePath string) (string, error) {
+	localPath, err := wailsRuntime.OpenFileDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+		Title: "选择上传文件",
+	})
+	if err != nil {
+		return "", fmt.Errorf("打开文件对话框失败: %w", err)
+	}
+	if localPath == "" {
+		return "", nil // 用户取消
+	}
+
+	// 如果 remotePath 以 / 结尾，则拼接本地文件名
+	if strings.HasSuffix(remotePath, "/") {
+		remotePath += filepath.Base(localPath)
+	}
+
+	transferID := a.sftpService.GenerateTransferID()
+	go func() {
+		err := a.sftpService.Upload(a.ctx, transferID, sessionID, localPath, remotePath, func(p sftp_svc.TransferProgress) {
+			wailsRuntime.EventsEmit(a.ctx, "sftp:progress:"+transferID, p)
+		})
+		if err != nil {
+			wailsRuntime.EventsEmit(a.ctx, "sftp:progress:"+transferID, sftp_svc.TransferProgress{
+				TransferID: transferID,
+				Status:     "error",
+				Error:      err.Error(),
+			})
+			return
+		}
+		wailsRuntime.EventsEmit(a.ctx, "sftp:progress:"+transferID, sftp_svc.TransferProgress{
+			TransferID: transferID,
+			Status:     "done",
+		})
+	}()
+	return transferID, nil
+}
+
+// SFTPUploadDir 上传目录：弹出本地目录选择 → 上传到 remotePath
+func (a *App) SFTPUploadDir(sessionID, remotePath string) (string, error) {
+	localDir, err := wailsRuntime.OpenDirectoryDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+		Title: "选择上传文件夹",
+	})
+	if err != nil {
+		return "", fmt.Errorf("打开目录对话框失败: %w", err)
+	}
+	if localDir == "" {
+		return "", nil
+	}
+
+	// remotePath 拼接本地目录名
+	if strings.HasSuffix(remotePath, "/") {
+		remotePath += filepath.Base(localDir)
+	} else {
+		remotePath += "/" + filepath.Base(localDir)
+	}
+
+	transferID := a.sftpService.GenerateTransferID()
+	go func() {
+		err := a.sftpService.UploadDir(a.ctx, transferID, sessionID, localDir, remotePath, func(p sftp_svc.TransferProgress) {
+			wailsRuntime.EventsEmit(a.ctx, "sftp:progress:"+transferID, p)
+		})
+		if err != nil {
+			wailsRuntime.EventsEmit(a.ctx, "sftp:progress:"+transferID, sftp_svc.TransferProgress{
+				TransferID: transferID,
+				Status:     "error",
+				Error:      err.Error(),
+			})
+			return
+		}
+		wailsRuntime.EventsEmit(a.ctx, "sftp:progress:"+transferID, sftp_svc.TransferProgress{
+			TransferID: transferID,
+			Status:     "done",
+		})
+	}()
+	return transferID, nil
+}
+
+// SFTPDownload 下载文件：remotePath → 弹出本地保存对话框
+func (a *App) SFTPDownload(sessionID, remotePath string) (string, error) {
+	// 以远程文件名作为默认文件名
+	defaultName := filepath.Base(remotePath)
+	localPath, err := wailsRuntime.SaveFileDialog(a.ctx, wailsRuntime.SaveDialogOptions{
+		DefaultFilename: defaultName,
+		Title:           "保存到本地",
+	})
+	if err != nil {
+		return "", fmt.Errorf("保存文件对话框失败: %w", err)
+	}
+	if localPath == "" {
+		return "", nil
+	}
+
+	transferID := a.sftpService.GenerateTransferID()
+	go func() {
+		err := a.sftpService.Download(a.ctx, transferID, sessionID, remotePath, localPath, func(p sftp_svc.TransferProgress) {
+			wailsRuntime.EventsEmit(a.ctx, "sftp:progress:"+transferID, p)
+		})
+		if err != nil {
+			wailsRuntime.EventsEmit(a.ctx, "sftp:progress:"+transferID, sftp_svc.TransferProgress{
+				TransferID: transferID,
+				Status:     "error",
+				Error:      err.Error(),
+			})
+			return
+		}
+		wailsRuntime.EventsEmit(a.ctx, "sftp:progress:"+transferID, sftp_svc.TransferProgress{
+			TransferID: transferID,
+			Status:     "done",
+		})
+	}()
+	return transferID, nil
+}
+
+// SFTPDownloadDir 下载目录：remotePath → 弹出本地目录选择
+func (a *App) SFTPDownloadDir(sessionID, remotePath string) (string, error) {
+	localDir, err := wailsRuntime.OpenDirectoryDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+		Title: "选择保存目录",
+	})
+	if err != nil {
+		return "", fmt.Errorf("打开目录对话框失败: %w", err)
+	}
+	if localDir == "" {
+		return "", nil
+	}
+
+	// 本地目录 + 远程目录名
+	localDir = filepath.Join(localDir, filepath.Base(remotePath))
+
+	transferID := a.sftpService.GenerateTransferID()
+	go func() {
+		err := a.sftpService.DownloadDir(a.ctx, transferID, sessionID, remotePath, localDir, func(p sftp_svc.TransferProgress) {
+			wailsRuntime.EventsEmit(a.ctx, "sftp:progress:"+transferID, p)
+		})
+		if err != nil {
+			wailsRuntime.EventsEmit(a.ctx, "sftp:progress:"+transferID, sftp_svc.TransferProgress{
+				TransferID: transferID,
+				Status:     "error",
+				Error:      err.Error(),
+			})
+			return
+		}
+		wailsRuntime.EventsEmit(a.ctx, "sftp:progress:"+transferID, sftp_svc.TransferProgress{
+			TransferID: transferID,
+			Status:     "done",
+		})
+	}()
+	return transferID, nil
+}
+
+// SFTPCancelTransfer 取消传输
+func (a *App) SFTPCancelTransfer(transferID string) {
+	a.sftpService.Cancel(transferID)
+}
+
 // --- 本地 SSH 密钥发现 ---
 
 // LocalSSHKeyInfo 本地 SSH 密钥信息
@@ -365,9 +526,6 @@ func (a *App) SelectSSHKeyFile() (*LocalSSHKeyInfo, error) {
 	filePath, err := wailsRuntime.OpenFileDialog(a.ctx, wailsRuntime.OpenDialogOptions{
 		Title:            "选择 SSH 私钥文件",
 		DefaultDirectory: defaultDir,
-		Filters: []wailsRuntime.FileFilter{
-			{DisplayName: "All Files", Pattern: "*"},
-		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("打开文件对话框失败: %w", err)
@@ -735,9 +893,6 @@ func (a *App) GenerateSSHKey(name, comment, keyType string, keySize int) (*ssh_k
 func (a *App) ImportSSHKeyFile(name, comment string) (*ssh_key_entity.SSHKey, error) {
 	filePath, err := wailsRuntime.OpenFileDialog(a.ctx, wailsRuntime.OpenDialogOptions{
 		Title: "选择 SSH 私钥文件",
-		Filters: []wailsRuntime.FileFilter{
-			{DisplayName: "All Files", Pattern: "*"},
-		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("打开文件对话框失败: %w", err)
@@ -760,6 +915,19 @@ func (a *App) UpdateSSHKey(id int64, name, comment string) (*ssh_key_entity.SSHK
 		Name:    name,
 		Comment: comment,
 	})
+}
+
+// GetSSHKeyUsage 获取引用此 SSH 密钥的资产名称列表
+func (a *App) GetSSHKeyUsage(id int64) ([]string, error) {
+	assets, err := asset_repo.Asset().FindBySSHKeyID(a.langCtx(), id)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, len(assets))
+	for i, asset := range assets {
+		names[i] = asset.Name
+	}
+	return names, nil
 }
 
 // DeleteSSHKey 删除 SSH 密钥

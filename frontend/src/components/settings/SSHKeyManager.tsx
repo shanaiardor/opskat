@@ -28,6 +28,7 @@ import {
   UpdateSSHKey,
   DeleteSSHKey,
   GetSSHKeyPublicKey,
+  GetSSHKeyUsage,
 } from "../../../wailsjs/go/main/App";
 import { ssh_key_entity } from "../../../wailsjs/go/models";
 
@@ -38,6 +39,8 @@ export function SSHKeyManager() {
   const [generateOpen, setGenerateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [editingKey, setEditingKey] = useState<ssh_key_entity.SSHKey | null>(null);
+  const [deleteKey, setDeleteKey] = useState<ssh_key_entity.SSHKey | null>(null);
+  const [deleteUsage, setDeleteUsage] = useState<string[]>([]);
 
   const fetchKeys = useCallback(async () => {
     setLoading(true);
@@ -53,11 +56,22 @@ export function SSHKeyManager() {
     fetchKeys();
   }, [fetchKeys]);
 
-  const handleDelete = async (key: ssh_key_entity.SSHKey) => {
-    if (!confirm(t("sshKey.deleteConfirm", { name: key.name }))) return;
+  const handleDeleteClick = async (key: ssh_key_entity.SSHKey) => {
     try {
-      await DeleteSSHKey(key.id);
+      const usage = await GetSSHKeyUsage(key.id);
+      setDeleteUsage(usage || []);
+    } catch {
+      setDeleteUsage([]);
+    }
+    setDeleteKey(key);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteKey) return;
+    try {
+      await DeleteSSHKey(deleteKey.id);
       toast.success(t("sshKey.deleteSuccess"));
+      setDeleteKey(null);
       fetchKeys();
     } catch (e) {
       toast.error(String(e));
@@ -167,7 +181,7 @@ export function SSHKeyManager() {
                   size="icon"
                   className="h-7 w-7 text-destructive hover:text-destructive"
                   title={t("sshKey.delete")}
-                  onClick={() => handleDelete(key)}
+                  onClick={() => handleDeleteClick(key)}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
@@ -193,6 +207,30 @@ export function SSHKeyManager() {
         editKey={editingKey}
         onSuccess={fetchKeys}
       />
+
+      <Dialog open={!!deleteKey} onOpenChange={(open) => !open && setDeleteKey(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("sshKey.deleteConfirmTitle")}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {deleteUsage.length > 0
+              ? t("sshKey.deleteConfirmUsage", {
+                  name: deleteKey?.name,
+                  assets: deleteUsage.join(", "),
+                })
+              : t("sshKey.deleteConfirm", { name: deleteKey?.name })}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteKey(null)}>
+              {t("action.cancel")}
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm}>
+              {t("action.delete")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	github.com/cago-frame/cago v0.0.0-20260307042250-c4ff92923947
 	github.com/go-gormigrate/gormigrate/v2 v2.1.2
+	github.com/pkg/sftp v1.13.10
 	github.com/smartystreets/goconvey v1.8.1
 	github.com/stretchr/testify v1.11.1
 	github.com/wailsapp/wails/v2 v2.10.2
@@ -51,6 +52,7 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/jtolds/gls v4.20.0+incompatible // indirect
 	github.com/klauspost/cpuid/v2 v2.2.9 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/labstack/echo/v4 v4.13.3 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/leaanthony/go-ansi-parser v1.6.1 // indirect
