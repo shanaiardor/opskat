@@ -5,13 +5,22 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"time"
 
 	"ops-cat/internal/ai"
 	"ops-cat/internal/model/entity/asset_entity"
 	"ops-cat/internal/model/entity/group_entity"
+	"ops-cat/internal/model/entity/ssh_key_entity"
+	"ops-cat/internal/repository/asset_repo"
 	"ops-cat/internal/repository/group_repo"
 	"ops-cat/internal/service/asset_svc"
+	"ops-cat/internal/service/backup_svc"
 	"ops-cat/internal/service/credential_svc"
+	"ops-cat/internal/service/import_svc"
+	"ops-cat/internal/service/ssh_key_svc"
 	"ops-cat/internal/service/ssh_svc"
 
 	"github.com/cago-frame/cago/pkg/i18n"
@@ -20,10 +29,11 @@ import (
 
 // App Wails应用主结构体，替代controller层
 type App struct {
-	ctx        context.Context
-	lang       string
-	sshManager *ssh_svc.Manager
-	aiAgent    *ai.Agent
+	ctx              context.Context
+	lang             string
+	sshManager       *ssh_svc.Manager
+	aiAgent          *ai.Agent
+	githubAuthCancel context.CancelFunc
 }
 
 // NewApp 创建App实例
@@ -111,6 +121,40 @@ func (a *App) CreateGroup(group *group_entity.Group) error {
 	return group_repo.Group().Create(a.langCtx(), group)
 }
 
+// UpdateGroup 更新分组
+func (a *App) UpdateGroup(group *group_entity.Group) error {
+	if err := group.Validate(); err != nil {
+		return err
+	}
+	return group_repo.Group().Update(a.langCtx(), group)
+}
+
+// DeleteGroup 删除分组
+// deleteAssets: true 删除分组下的资产，false 移动到未分组
+func (a *App) DeleteGroup(id int64, deleteAssets bool) error {
+	ctx := a.langCtx()
+	// 获取分组信息，用于将子分组挂到父分组
+	group, err := group_repo.Group().Find(ctx, id)
+	if err != nil {
+		return err
+	}
+	// 子分组挂到被删分组的父级
+	if err := group_repo.Group().ReparentChildren(ctx, id, group.ParentID); err != nil {
+		return err
+	}
+	// 处理分组下的资产
+	if deleteAssets {
+		if err := asset_repo.Asset().DeleteByGroupID(ctx, id); err != nil {
+			return err
+		}
+	} else {
+		if err := asset_repo.Asset().MoveToGroup(ctx, id, 0); err != nil {
+			return err
+		}
+	}
+	return group_repo.Group().Delete(ctx, id)
+}
+
 // --- SSH 操作 ---
 
 // SSHConnectRequest 前端 SSH 连接请求
@@ -137,28 +181,91 @@ func (a *App) ConnectSSH(req SSHConnectRequest) (string, error) {
 		return "", err
 	}
 
-	sessionID, err := a.sshManager.Connect(ssh_svc.ConnectConfig{
-		Host:     sshCfg.Host,
-		Port:     sshCfg.Port,
-		Username: sshCfg.Username,
-		AuthType: sshCfg.AuthType,
-		Password: req.Password,
-		Key:      req.Key,
-		AssetID:  req.AssetID,
-		Cols:     req.Cols,
-		Rows:     req.Rows,
+	// 解析存储的凭证
+	password := req.Password
+	key := req.Key
+	if password == "" && sshCfg.AuthType == "password" && sshCfg.Password != "" {
+		decrypted, err := credential_svc.Default().Decrypt(sshCfg.Password)
+		if err == nil {
+			password = decrypted
+		}
+	}
+	if key == "" && sshCfg.AuthType == "key" && sshCfg.KeySource == "managed" && sshCfg.KeyID > 0 {
+		privKey, err := ssh_key_svc.GetPrivateKey(a.langCtx(), sshCfg.KeyID)
+		if err == nil {
+			key = privKey
+		}
+	}
+
+	connectCfg := ssh_svc.ConnectConfig{
+		Host:        sshCfg.Host,
+		Port:        sshCfg.Port,
+		Username:    sshCfg.Username,
+		AuthType:    sshCfg.AuthType,
+		Password:    password,
+		Key:         key,
+		PrivateKeys: sshCfg.PrivateKeys,
+		AssetID:     req.AssetID,
+		Cols:        req.Cols,
+		Rows:        req.Rows,
+		Proxy:       sshCfg.Proxy,
 		OnData: func(sid string, data []byte) {
-			// 通过 Wails Events 发送终端输出到前端（base64 编码二进制数据）
 			wailsRuntime.EventsEmit(a.ctx, "ssh:data:"+sid, base64.StdEncoding.EncodeToString(data))
 		},
 		OnClosed: func(sid string) {
 			wailsRuntime.EventsEmit(a.ctx, "ssh:closed:"+sid, nil)
 		},
-	})
+	}
+
+	// 解析跳板机链（递归，最大深度 5）
+	if sshCfg.JumpHostID > 0 {
+		jumpHosts, err := a.resolveJumpHosts(sshCfg.JumpHostID, 5)
+		if err != nil {
+			return "", fmt.Errorf("解析跳板机失败: %w", err)
+		}
+		connectCfg.JumpHosts = jumpHosts
+	}
+
+	sessionID, err := a.sshManager.Connect(connectCfg)
 	if err != nil {
 		return "", err
 	}
 	return sessionID, nil
+}
+
+// resolveJumpHosts 递归解析跳板机链，返回从第一跳到最后一跳的顺序
+func (a *App) resolveJumpHosts(jumpHostID int64, maxDepth int) ([]ssh_svc.JumpHostEntry, error) {
+	if maxDepth <= 0 {
+		return nil, fmt.Errorf("跳板机链过深，可能存在循环引用")
+	}
+
+	jumpAsset, err := asset_svc.Asset().Get(a.langCtx(), jumpHostID)
+	if err != nil {
+		return nil, fmt.Errorf("跳板机资产不存在(ID=%d): %w", jumpHostID, err)
+	}
+	jumpCfg, err := jumpAsset.GetSSHConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	entry := ssh_svc.JumpHostEntry{
+		Host:     jumpCfg.Host,
+		Port:     jumpCfg.Port,
+		Username: jumpCfg.Username,
+		AuthType: jumpCfg.AuthType,
+	}
+
+	// 如果跳板机自身也有跳板机，递归解析
+	if jumpCfg.JumpHostID > 0 {
+		parentHosts, err := a.resolveJumpHosts(jumpCfg.JumpHostID, maxDepth-1)
+		if err != nil {
+			return nil, err
+		}
+		// 父级跳板机在前，当前在后
+		return append(parentHosts, entry), nil
+	}
+
+	return []ssh_svc.JumpHostEntry{entry}, nil
 }
 
 // WriteSSH 向 SSH 终端写入数据（base64 编码）
@@ -239,20 +346,96 @@ func (a *App) LoadCredential(ciphertext string) (string, error) {
 
 // --- 导入导出 ---
 
+// PreviewTabbyConfig 预览 Tabby 配置（不写入数据库）
+// 自动检测默认路径，找不到则弹出文件选择框
+func (a *App) PreviewTabbyConfig() (*import_svc.PreviewResult, error) {
+	data, err := a.readTabbyConfig()
+	if err != nil {
+		return nil, err
+	}
+	if data == nil {
+		return nil, nil
+	}
+	return import_svc.PreviewTabbyConfig(a.langCtx(), data)
+}
+
+// ImportTabbySelected 导入用户选中的 Tabby 连接
+func (a *App) ImportTabbySelected(selectedIndexes []int) (*import_svc.ImportResult, error) {
+	data, err := a.readTabbyConfig()
+	if err != nil {
+		return nil, err
+	}
+	if data == nil {
+		return nil, nil
+	}
+	return import_svc.ImportTabbySelected(a.langCtx(), data, selectedIndexes)
+}
+
+// readTabbyConfig 读取 Tabby 配置文件内容
+func (a *App) readTabbyConfig() ([]byte, error) {
+	filePath := detectTabbyConfigPath()
+	if filePath == "" {
+		var err error
+		filePath, err = wailsRuntime.OpenFileDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+			Title: "选择 Tabby 配置文件",
+			Filters: []wailsRuntime.FileFilter{
+				{DisplayName: "YAML Files", Pattern: "*.yaml;*.yml"},
+				{DisplayName: "All Files", Pattern: "*"},
+			},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("打开文件对话框失败: %w", err)
+		}
+		if filePath == "" {
+			return nil, nil
+		}
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("读取文件失败: %w", err)
+	}
+	return data, nil
+}
+
+// detectTabbyConfigPath 检测 Tabby 配置文件默认路径
+func detectTabbyConfigPath() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	var candidates []string
+	switch runtime.GOOS {
+	case "darwin":
+		candidates = []string{
+			filepath.Join(homeDir, "Library", "Application Support", "tabby", "config.yaml"),
+		}
+	case "windows":
+		appData := os.Getenv("APPDATA")
+		if appData != "" {
+			candidates = []string{
+				filepath.Join(appData, "Tabby", "config.yaml"),
+			}
+		}
+	case "linux":
+		candidates = []string{
+			filepath.Join(homeDir, ".config", "tabby", "config.yaml"),
+		}
+	}
+
+	for _, path := range candidates {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
 // ExportData 导出所有资产和分组为 JSON
 func (a *App) ExportData() (string, error) {
-	assets, err := asset_svc.Asset().List(a.langCtx(), "", 0)
+	data, err := backup_svc.Export(a.langCtx())
 	if err != nil {
 		return "", err
-	}
-	groups, err := group_repo.Group().List(a.langCtx())
-	if err != nil {
-		return "", err
-	}
-	data := map[string]interface{}{
-		"version": "1.0",
-		"assets":  assets,
-		"groups":  groups,
 	}
 	result, err := json.Marshal(data)
 	if err != nil {
@@ -260,3 +443,241 @@ func (a *App) ExportData() (string, error) {
 	}
 	return string(result), nil
 }
+
+// --- 备份操作 ---
+
+// ExportToFile 导出备份到文件，password 为空则不加密
+func (a *App) ExportToFile(password string) error {
+	data, err := backup_svc.Export(a.langCtx())
+	if err != nil {
+		return err
+	}
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	var output []byte
+	var defaultName string
+	if password != "" {
+		output, err = backup_svc.EncryptBackup(jsonData, password)
+		if err != nil {
+			return err
+		}
+		defaultName = fmt.Sprintf("ops-cat-backup-%s.encrypted.json", time.Now().Format("20060102"))
+	} else {
+		output = jsonData
+		defaultName = fmt.Sprintf("ops-cat-backup-%s.json", time.Now().Format("20060102"))
+	}
+
+	filePath, err := wailsRuntime.SaveFileDialog(a.ctx, wailsRuntime.SaveDialogOptions{
+		DefaultFilename: defaultName,
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "JSON Files", Pattern: "*.json"},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("保存文件对话框失败: %w", err)
+	}
+	if filePath == "" {
+		return nil
+	}
+
+	return os.WriteFile(filePath, output, 0644)
+}
+
+// ImportFileInfo 导入文件信息
+type ImportFileInfo struct {
+	FilePath  string `json:"filePath"`
+	Encrypted bool   `json:"encrypted"`
+}
+
+// SelectImportFile 选择备份文件并检测是否加密
+func (a *App) SelectImportFile() (*ImportFileInfo, error) {
+	filePath, err := wailsRuntime.OpenFileDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+		Title: "导入备份",
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "JSON Files", Pattern: "*.json"},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("打开文件对话框失败: %w", err)
+	}
+	if filePath == "" {
+		return nil, nil
+	}
+
+	fileData, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("读取文件失败: %w", err)
+	}
+
+	return &ImportFileInfo{
+		FilePath:  filePath,
+		Encrypted: backup_svc.IsEncryptedBackup(fileData),
+	}, nil
+}
+
+// ExecuteImportFile 执行文件导入
+func (a *App) ExecuteImportFile(filePath, password string) error {
+	fileData, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("读取文件失败: %w", err)
+	}
+
+	var jsonData []byte
+	if backup_svc.IsEncryptedBackup(fileData) {
+		jsonData, err = backup_svc.DecryptBackup(fileData, password)
+		if err != nil {
+			return err
+		}
+	} else {
+		jsonData = fileData
+	}
+
+	var data backup_svc.BackupData
+	if err := json.Unmarshal(jsonData, &data); err != nil {
+		return fmt.Errorf("解析备份数据失败: %w", err)
+	}
+
+	return backup_svc.Import(a.langCtx(), &data)
+}
+
+// --- GitHub 认证 ---
+
+// StartGitHubDeviceFlow 发起 GitHub Device Flow 认证
+func (a *App) StartGitHubDeviceFlow() (*backup_svc.DeviceFlowInfo, error) {
+	return backup_svc.StartDeviceFlow()
+}
+
+// WaitGitHubDeviceAuth 等待用户完成 GitHub 授权，返回 access_token
+func (a *App) WaitGitHubDeviceAuth(deviceCode string, interval int) (string, error) {
+	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Minute)
+	a.githubAuthCancel = cancel
+	defer func() {
+		cancel()
+		a.githubAuthCancel = nil
+	}()
+	return backup_svc.PollDeviceAuth(ctx, deviceCode, interval)
+}
+
+// CancelGitHubAuth 取消 GitHub 授权等待
+func (a *App) CancelGitHubAuth() {
+	if a.githubAuthCancel != nil {
+		a.githubAuthCancel()
+	}
+}
+
+// GetGitHubUser 获取 GitHub 用户信息
+func (a *App) GetGitHubUser(token string) (*backup_svc.GitHubUser, error) {
+	return backup_svc.GetGitHubUser(token)
+}
+
+// --- Gist 备份 ---
+
+// ExportToGist 加密并上传备份到 Gist
+func (a *App) ExportToGist(password, token, gistID string) (*backup_svc.GistInfo, error) {
+	data, err := backup_svc.Export(a.langCtx())
+	if err != nil {
+		return nil, err
+	}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+
+	encrypted, err := backup_svc.EncryptBackup(jsonData, password)
+	if err != nil {
+		return nil, err
+	}
+
+	return backup_svc.CreateOrUpdateGist(token, gistID, encrypted)
+}
+
+// ListBackupGists 列出用户的备份 Gist
+func (a *App) ListBackupGists(token string) ([]*backup_svc.GistInfo, error) {
+	return backup_svc.ListBackupGists(token)
+}
+
+// --- SSH 密钥管理 ---
+
+// ListSSHKeys 列出所有 SSH 托管密钥
+func (a *App) ListSSHKeys() ([]*ssh_key_entity.SSHKey, error) {
+	return ssh_key_svc.List(a.langCtx())
+}
+
+// GenerateSSHKey 生成新的 SSH 密钥对
+func (a *App) GenerateSSHKey(name, comment, keyType string, keySize int) (*ssh_key_entity.SSHKey, error) {
+	return ssh_key_svc.Generate(a.langCtx(), ssh_key_svc.GenerateRequest{
+		Name:    name,
+		Comment: comment,
+		KeyType: keyType,
+		KeySize: keySize,
+	})
+}
+
+// ImportSSHKeyFile 通过文件选择框导入 SSH 密钥
+func (a *App) ImportSSHKeyFile(name, comment string) (*ssh_key_entity.SSHKey, error) {
+	filePath, err := wailsRuntime.OpenFileDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+		Title: "选择 SSH 私钥文件",
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "All Files", Pattern: "*"},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("打开文件对话框失败: %w", err)
+	}
+	if filePath == "" {
+		return nil, nil
+	}
+	return ssh_key_svc.ImportFromFile(a.langCtx(), name, comment, filePath)
+}
+
+// ImportSSHKeyPEM 通过粘贴 PEM 内容导入 SSH 密钥
+func (a *App) ImportSSHKeyPEM(name, comment, pemData string) (*ssh_key_entity.SSHKey, error) {
+	return ssh_key_svc.ImportFromPEM(a.langCtx(), name, comment, pemData)
+}
+
+// UpdateSSHKey 更新 SSH 密钥名称和注释
+func (a *App) UpdateSSHKey(id int64, name, comment string) (*ssh_key_entity.SSHKey, error) {
+	return ssh_key_svc.Update(a.langCtx(), ssh_key_svc.UpdateRequest{
+		ID:      id,
+		Name:    name,
+		Comment: comment,
+	})
+}
+
+// DeleteSSHKey 删除 SSH 密钥
+func (a *App) DeleteSSHKey(id int64) error {
+	return ssh_key_svc.Delete(a.langCtx(), id)
+}
+
+// GetSSHKeyPublicKey 获取密钥公钥（用于复制）
+func (a *App) GetSSHKeyPublicKey(id int64) (string, error) {
+	key, err := ssh_key_svc.Get(a.langCtx(), id)
+	if err != nil {
+		return "", err
+	}
+	return key.PublicKey, nil
+}
+
+// ImportFromGist 从 Gist 导入备份
+func (a *App) ImportFromGist(gistID, password, token string) error {
+	content, err := backup_svc.GetGistContent(token, gistID)
+	if err != nil {
+		return err
+	}
+
+	jsonData, err := backup_svc.DecryptBackup(content, password)
+	if err != nil {
+		return err
+	}
+
+	var data backup_svc.BackupData
+	if err := json.Unmarshal(jsonData, &data); err != nil {
+		return fmt.Errorf("解析备份数据失败: %w", err)
+	}
+
+	return backup_svc.Import(a.langCtx(), &data)
+}
+

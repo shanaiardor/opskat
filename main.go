@@ -4,9 +4,11 @@ import (
 	"context"
 	"embed"
 	"log"
+	"runtime"
 
 	"ops-cat/internal/repository/asset_repo"
 	"ops-cat/internal/repository/group_repo"
+	"ops-cat/internal/repository/ssh_key_repo"
 	"ops-cat/internal/service/credential_svc"
 	"ops-cat/migrations"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 
 	_ "ops-cat/internal/pkg/code"
 	_ "github.com/cago-frame/cago/database/db/sqlite"
@@ -44,6 +47,7 @@ func main() {
 	// 注册 Repository
 	asset_repo.RegisterAsset(asset_repo.NewAsset())
 	group_repo.RegisterGroup(group_repo.NewGroup())
+	ssh_key_repo.RegisterSSHKey(ssh_key_repo.NewSSHKey())
 
 	// 运行数据库迁移
 	if err := migrations.RunMigrations(db.Default()); err != nil {
@@ -54,15 +58,20 @@ func main() {
 	app := NewApp()
 
 	err = wails.Run(&options.App{
-		Title:  "Ops Cat",
-		Width:  1280,
-		Height: 800,
+		Title:     "Ops Cat",
+		Width:     1280,
+		Height:    800,
+		Frameless: runtime.GOOS == "windows",
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
 		OnStartup: app.startup,
 		Bind: []interface{}{
 			app,
+		},
+		Mac: &mac.Options{
+			TitleBar:             mac.TitleBarHiddenInset(),
+			WebviewIsTransparent: true,
 		},
 	})
 	if err != nil {

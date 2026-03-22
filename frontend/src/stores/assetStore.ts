@@ -8,6 +8,8 @@ import {
   GetAsset,
   ListGroups,
   CreateGroup,
+  UpdateGroup,
+  DeleteGroup,
 } from "../../wailsjs/go/main/App";
 
 interface AssetState {
@@ -17,14 +19,16 @@ interface AssetState {
   selectedGroupId: number | null;
   loading: boolean;
 
-  // 操作
   fetchAssets: (assetType?: string, groupId?: number) => Promise<void>;
   fetchGroups: () => Promise<void>;
   createAsset: (asset: asset_entity.Asset) => Promise<void>;
   updateAsset: (asset: asset_entity.Asset) => Promise<void>;
   deleteAsset: (id: number) => Promise<void>;
   getAsset: (id: number) => Promise<asset_entity.Asset>;
+  getAssetPath: (asset: asset_entity.Asset) => string;
   createGroup: (group: group_entity.Group) => Promise<void>;
+  updateGroup: (group: group_entity.Group) => Promise<void>;
+  deleteGroup: (id: number, deleteAssets: boolean) => Promise<void>;
   selectAsset: (id: number | null) => void;
   selectGroup: (id: number | null) => void;
   refresh: () => Promise<void>;
@@ -72,9 +76,32 @@ export const useAssetStore = create<AssetState>((set, get) => ({
     return await GetAsset(id);
   },
 
+  getAssetPath: (asset) => {
+    const { groups } = get();
+    const parts: string[] = [asset.Name];
+    let groupId = asset.GroupID;
+    while (groupId > 0) {
+      const group = groups.find((g) => g.ID === groupId);
+      if (!group) break;
+      parts.unshift(group.Name);
+      groupId = group.ParentID;
+    }
+    return parts.join(" / ");
+  },
+
   createGroup: async (group) => {
     await CreateGroup(group);
     await get().fetchGroups();
+  },
+
+  updateGroup: async (group) => {
+    await UpdateGroup(group);
+    await get().fetchGroups();
+  },
+
+  deleteGroup: async (id, deleteAssets) => {
+    await DeleteGroup(id, deleteAssets);
+    await get().refresh();
   },
 
   selectAsset: (id) => set({ selectedAssetId: id }),

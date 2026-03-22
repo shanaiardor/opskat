@@ -4,6 +4,11 @@ import {main} from '../models';
 import {asset_entity} from '../models';
 import {group_entity} from '../models';
 import {ai} from '../models';
+import {backup_svc} from '../models';
+import {ssh_key_entity} from '../models';
+import {import_svc} from '../models';
+
+export function CancelGitHubAuth():Promise<void>;
 
 export function ConnectSSH(arg1:main.SSHConnectRequest):Promise<string>;
 
@@ -13,25 +18,57 @@ export function CreateGroup(arg1:group_entity.Group):Promise<void>;
 
 export function DeleteAsset(arg1:number):Promise<void>;
 
+export function DeleteGroup(arg1:number,arg2:boolean):Promise<void>;
+
+export function DeleteSSHKey(arg1:number):Promise<void>;
+
 export function DetectLocalCLIs():Promise<Array<ai.CLIInfo>>;
 
 export function DisconnectSSH(arg1:string):Promise<void>;
 
+export function ExecuteImportFile(arg1:string,arg2:string):Promise<void>;
+
 export function ExportData():Promise<string>;
+
+export function ExportToFile(arg1:string):Promise<void>;
+
+export function ExportToGist(arg1:string,arg2:string,arg3:string):Promise<backup_svc.GistInfo>;
+
+export function GenerateSSHKey(arg1:string,arg2:string,arg3:string,arg4:number):Promise<ssh_key_entity.SSHKey>;
 
 export function GetAsset(arg1:number):Promise<asset_entity.Asset>;
 
+export function GetGitHubUser(arg1:string):Promise<backup_svc.GitHubUser>;
+
 export function GetLanguage():Promise<string>;
+
+export function GetSSHKeyPublicKey(arg1:number):Promise<string>;
+
+export function ImportFromGist(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function ImportSSHKeyFile(arg1:string,arg2:string):Promise<ssh_key_entity.SSHKey>;
+
+export function ImportSSHKeyPEM(arg1:string,arg2:string,arg3:string):Promise<ssh_key_entity.SSHKey>;
+
+export function ImportTabbySelected(arg1:Array<number>):Promise<import_svc.ImportResult>;
 
 export function ListAssets(arg1:string,arg2:number):Promise<Array<asset_entity.Asset>>;
 
+export function ListBackupGists(arg1:string):Promise<Array<backup_svc.GistInfo>>;
+
 export function ListGroups():Promise<Array<group_entity.Group>>;
 
+export function ListSSHKeys():Promise<Array<ssh_key_entity.SSHKey>>;
+
 export function LoadCredential(arg1:string):Promise<string>;
+
+export function PreviewTabbyConfig():Promise<import_svc.PreviewResult>;
 
 export function ResizeSSH(arg1:string,arg2:number,arg3:number):Promise<void>;
 
 export function SaveCredential(arg1:string):Promise<string>;
+
+export function SelectImportFile():Promise<main.ImportFileInfo>;
 
 export function SendAIMessage(arg1:string,arg2:Array<ai.Message>):Promise<void>;
 
@@ -39,6 +76,14 @@ export function SetAIProvider(arg1:string,arg2:string,arg3:string,arg4:string):P
 
 export function SetLanguage(arg1:string):Promise<void>;
 
+export function StartGitHubDeviceFlow():Promise<backup_svc.DeviceFlowInfo>;
+
 export function UpdateAsset(arg1:asset_entity.Asset):Promise<void>;
+
+export function UpdateGroup(arg1:group_entity.Group):Promise<void>;
+
+export function UpdateSSHKey(arg1:number,arg2:string,arg3:string):Promise<ssh_key_entity.SSHKey>;
+
+export function WaitGitHubDeviceAuth(arg1:string,arg2:number):Promise<string>;
 
 export function WriteSSH(arg1:string,arg2:string):Promise<void>;

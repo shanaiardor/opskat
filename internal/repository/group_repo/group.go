@@ -15,6 +15,7 @@ type GroupRepo interface {
 	Create(ctx context.Context, group *group_entity.Group) error
 	Update(ctx context.Context, group *group_entity.Group) error
 	Delete(ctx context.Context, id int64) error
+	ReparentChildren(ctx context.Context, oldParentID, newParentID int64) error
 }
 
 var defaultGroup GroupRepo
@@ -63,4 +64,10 @@ func (r *groupRepo) Update(ctx context.Context, group *group_entity.Group) error
 
 func (r *groupRepo) Delete(ctx context.Context, id int64) error {
 	return db.Ctx(ctx).Where("id = ?", id).Delete(&group_entity.Group{}).Error
+}
+
+func (r *groupRepo) ReparentChildren(ctx context.Context, oldParentID, newParentID int64) error {
+	return db.Ctx(ctx).Model(&group_entity.Group{}).
+		Where("parent_id = ?", oldParentID).
+		Update("parent_id", newParentID).Error
 }

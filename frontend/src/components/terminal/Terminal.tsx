@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { WriteSSH, ResizeSSH } from "../../../wailsjs/go/main/App";
 import { EventsOn, EventsOff } from "../../../wailsjs/runtime/runtime";
+import { useShortcutStore, matchShortcut } from "@/stores/shortcutStore";
 
 interface TerminalProps {
   sessionId: string;
@@ -14,6 +15,7 @@ export function Terminal({ sessionId, active }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const activeRef = useRef(active);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -36,6 +38,11 @@ export function Terminal({ sessionId, active }: TerminalProps) {
     // 初始 fit
     requestAnimationFrame(() => {
       fitAddon.fit();
+    });
+
+    // Let global shortcut handler handle shortcut keys instead of xterm
+    term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      return !matchShortcut(e, useShortcutStore.getState().shortcuts);
     });
 
     termRef.current = term;
@@ -66,19 +73,24 @@ export function Terminal({ sessionId, active }: TerminalProps) {
       term.write("\r\n\x1b[31m[Connection closed]\x1b[0m\r\n");
     });
 
-    // 窗口尺寸变化
+    // 窗口尺寸变化（debounce 避免过渡动画期间密集 refit）
+    let resizeTimer = 0;
     const resizeObserver = new ResizeObserver(() => {
-      requestAnimationFrame(() => {
+      if (!activeRef.current) return; // 非活动 tab 跳过 resize
+      clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        if (!activeRef.current) return;
         fitAddon.fit();
         const dims = fitAddon.proposeDimensions();
         if (dims) {
           ResizeSSH(sessionId, dims.cols, dims.rows).catch(console.error);
         }
-      });
+      }, 50);
     });
     resizeObserver.observe(containerRef.current);
 
     return () => {
+      clearTimeout(resizeTimer);
       onDataDispose.dispose();
       EventsOff(eventName);
       EventsOff(closedEvent);
@@ -89,11 +101,16 @@ export function Terminal({ sessionId, active }: TerminalProps) {
     };
   }, [sessionId]);
 
-  // 当 tab 切换回来时重新 fit
+  // 同步 active 状态到 ref，供 ResizeObserver 闭包读取
   useEffect(() => {
-    if (active && fitAddonRef.current) {
+    activeRef.current = active;
+  }, [active]);
+
+  // 当 tab 切换回来时聚焦（尺寸由 visibility 保持，无需 refit）
+  useEffect(() => {
+    if (active) {
       requestAnimationFrame(() => {
-        fitAddonRef.current?.fit();
+        termRef.current?.focus();
       });
     }
   }, [active]);

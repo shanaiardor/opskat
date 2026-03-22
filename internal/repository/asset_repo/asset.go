@@ -15,6 +15,8 @@ type AssetRepo interface {
 	Create(ctx context.Context, asset *asset_entity.Asset) error
 	Update(ctx context.Context, asset *asset_entity.Asset) error
 	Delete(ctx context.Context, id int64) error
+	MoveToGroup(ctx context.Context, fromGroupID, toGroupID int64) error
+	DeleteByGroupID(ctx context.Context, groupID int64) error
 }
 
 // ListOptions 列表查询选项
@@ -76,5 +78,17 @@ func (r *assetRepo) Update(ctx context.Context, asset *asset_entity.Asset) error
 
 func (r *assetRepo) Delete(ctx context.Context, id int64) error {
 	return db.Ctx(ctx).Model(&asset_entity.Asset{}).Where("id = ?", id).
+		Update("status", asset_entity.StatusDeleted).Error
+}
+
+func (r *assetRepo) MoveToGroup(ctx context.Context, fromGroupID, toGroupID int64) error {
+	return db.Ctx(ctx).Model(&asset_entity.Asset{}).
+		Where("group_id = ? AND status = ?", fromGroupID, asset_entity.StatusActive).
+		Update("group_id", toGroupID).Error
+}
+
+func (r *assetRepo) DeleteByGroupID(ctx context.Context, groupID int64) error {
+	return db.Ctx(ctx).Model(&asset_entity.Asset{}).
+		Where("group_id = ? AND status = ?", groupID, asset_entity.StatusActive).
 		Update("status", asset_entity.StatusDeleted).Error
 }

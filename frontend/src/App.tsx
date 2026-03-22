@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { toast } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,17 +7,39 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { AssetTree } from "@/components/layout/AssetTree";
 import { MainPanel } from "@/components/layout/MainPanel";
 import { AIPanel } from "@/components/layout/AIPanel";
+import { WindowControls } from "@/components/layout/WindowControls";
 import { AssetForm } from "@/components/asset/AssetForm";
 import { GroupDialog } from "@/components/asset/GroupDialog";
-import { ConnectDialog } from "@/components/terminal/ConnectDialog";
+
 import { useAssetStore } from "@/stores/assetStore";
 import { useTerminalStore } from "@/stores/terminalStore";
-import { asset_entity } from "../wailsjs/go/models";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { asset_entity, group_entity } from "../wailsjs/go/models";
 
 function App() {
   const [activePage, setActivePage] = useState("home");
-  const [assetTreeCollapsed] = useState(false);
-  const [aiPanelCollapsed, setAiPanelCollapsed] = useState(false);
+  const [assetTreeCollapsed, setAssetTreeCollapsed] = useState(
+    () => localStorage.getItem("sidebar_collapsed") === "true"
+  );
+  const [aiPanelCollapsed, setAiPanelCollapsed] = useState(
+    () => localStorage.getItem("ai_panel_collapsed") === "true"
+  );
+
+  const toggleAIPanel = useCallback(() => {
+    setAiPanelCollapsed((prev) => {
+      localStorage.setItem("ai_panel_collapsed", String(!prev));
+      return !prev;
+    });
+  }, []);
+
+  const toggleSidebar = useCallback(() => {
+    setAssetTreeCollapsed((prev) => {
+      localStorage.setItem("sidebar_collapsed", String(!prev));
+      return !prev;
+    });
+  }, []);
+
+  useKeyboardShortcuts({ onToggleAIPanel: toggleAIPanel, onToggleSidebar: toggleSidebar });
 
   // 资产表单
   const [assetFormOpen, setAssetFormOpen] = useState(false);
@@ -26,12 +48,9 @@ function App() {
 
   // 分组对话框
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<group_entity.Group | null>(null);
 
-  // SSH 连接对话框
-  const [connectDialogOpen, setConnectDialogOpen] = useState(false);
-  const [connectingAsset, setConnectingAsset] = useState<asset_entity.Asset | null>(null);
-
-  const { assets, selectedAssetId, selectAsset, deleteAsset } = useAssetStore();
+const { assets, selectedAssetId, selectAsset, deleteAsset, getAssetPath } = useAssetStore();
   const { connect } = useTerminalStore();
   const selectedAsset = assets.find((a) => a.ID === selectedAssetId) || null;
 
@@ -54,41 +73,47 @@ function App() {
     await deleteAsset(id);
   };
 
-  const handleConnectAsset = (asset: asset_entity.Asset) => {
-    setConnectingAsset(asset);
-    setConnectDialogOpen(true);
-  };
-
-  const handleConnect = async (password: string) => {
-    if (!connectingAsset) return;
+  const handleConnectAsset = async (asset: asset_entity.Asset) => {
+    const assetPath = getAssetPath(asset);
     try {
-      await connect(connectingAsset.ID, connectingAsset.Name, password, 80, 24);
+      await connect(asset.ID, assetPath, "", 80, 24);
     } catch (e) {
-      toast.error(String(e));
+      toast.error(`${assetPath}: ${String(e)}`);
     }
   };
 
-  const connectingAuthType = (() => {
-    if (!connectingAsset) return "password";
-    try {
-      const cfg = JSON.parse(connectingAsset.Config || "{}") as { auth_type?: string };
-      return cfg.auth_type || "password";
-    } catch {
-      return "password";
-    }
-  })();
 
   return (
     <ThemeProvider defaultTheme="system">
       <TooltipProvider>
         <div className="flex h-screen w-screen overflow-hidden bg-background">
-          <Sidebar activePage={activePage} onPageChange={setActivePage} />
-          <AssetTree
-            collapsed={assetTreeCollapsed}
-            onAddAsset={handleAddAsset}
-            onAddGroup={() => setGroupDialogOpen(true)}
-            onSelectAsset={handleSelectAsset}
+          <WindowControls />
+          <Sidebar
+            activePage={activePage}
+            onPageChange={setActivePage}
+            sidebarCollapsed={assetTreeCollapsed}
+            onToggleSidebar={toggleSidebar}
           />
+          <div
+            className="overflow-hidden shrink-0 transition-[width] duration-200"
+            style={{ width: assetTreeCollapsed ? 0 : "14rem" }}
+          >
+            <AssetTree
+              collapsed={false}
+              onAddAsset={handleAddAsset}
+              onAddGroup={() => {
+                setEditingGroup(null);
+                setGroupDialogOpen(true);
+              }}
+              onEditGroup={(group) => {
+                setEditingGroup(group);
+                setGroupDialogOpen(true);
+              }}
+              onEditAsset={handleEditAsset}
+              onConnectAsset={handleConnectAsset}
+              onSelectAsset={handleSelectAsset}
+            />
+          </div>
           <MainPanel
             activePage={activePage}
             selectedAsset={selectedAsset}
@@ -111,15 +136,9 @@ function App() {
         <GroupDialog
           open={groupDialogOpen}
           onOpenChange={setGroupDialogOpen}
+          editGroup={editingGroup}
         />
-        <ConnectDialog
-          open={connectDialogOpen}
-          onOpenChange={setConnectDialogOpen}
-          assetName={connectingAsset?.Name || ""}
-          authType={connectingAuthType}
-          onConnect={handleConnect}
-        />
-        <Toaster richColors />
+<Toaster richColors />
       </TooltipProvider>
     </ThemeProvider>
   );

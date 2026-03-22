@@ -12,6 +12,7 @@ import Markdown from "react-markdown";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAIStore } from "@/stores/aiStore";
+import { useFullscreen } from "@/hooks/useFullscreen";
 
 interface AIPanelProps {
   collapsed: boolean;
@@ -20,6 +21,7 @@ interface AIPanelProps {
 
 export function AIPanel({ collapsed, onToggle }: AIPanelProps) {
   const { t } = useTranslation();
+  const isFullscreen = useFullscreen();
   const { messages, sending, configured, send, clear } = useAIStore();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -47,9 +49,14 @@ export function AIPanel({ collapsed, onToggle }: AIPanelProps) {
   };
 
   return (
-    <div className="flex h-full w-80 flex-col border-l">
+    <div className="flex h-full w-80 flex-col border-l border-panel-divider">
+      {/* Drag region for frameless window */}
+      <div
+        className={`${isFullscreen ? "h-2" : "h-10"} w-full shrink-0`}
+        style={{ "--wails-draggable": "drag" } as React.CSSProperties}
+      />
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-panel-divider">
         <div className="flex items-center gap-1.5">
           <Bot className="h-3.5 w-3.5 text-primary" />
           <span className="text-sm font-medium">{t("ai.title")}</span>

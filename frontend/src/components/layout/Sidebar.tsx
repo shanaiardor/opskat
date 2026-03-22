@@ -1,4 +1,4 @@
-import { Home, Settings, Cat } from "lucide-react";
+import { Home, Settings, Cat, KeyRound, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   Tooltip,
@@ -7,25 +7,30 @@ import {
 } from "@/components/ui/tooltip";
 import { ModeToggle } from "@/components/mode-toggle";
 import { cn } from "@/lib/utils";
+import { useFullscreen } from "@/hooks/useFullscreen";
 
 interface SidebarProps {
   activePage: string;
   onPageChange: (page: string) => void;
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
 }
 
-export function Sidebar({ activePage, onPageChange }: SidebarProps) {
+export function Sidebar({ activePage, onPageChange, sidebarCollapsed, onToggleSidebar }: SidebarProps) {
   const { t } = useTranslation();
+  const isFullscreen = useFullscreen();
 
   const navItems = [
     { id: "home", icon: Home, label: t("nav.home") },
+    { id: "sshkeys", icon: KeyRound, label: t("nav.sshKeys") },
     { id: "settings", icon: Settings, label: t("nav.settings") },
   ];
 
   return (
-    <div className="flex h-full w-14 flex-col items-center border-r border-sidebar-border bg-sidebar/80 backdrop-blur-sm">
+    <div className="flex h-full w-14 flex-col items-center border-r border-panel-divider bg-sidebar/80 backdrop-blur-sm">
       {/* Drag region for Wails window */}
       <div
-        className="h-8 w-full shrink-0"
+        className={`${isFullscreen ? "h-2" : "h-10"} w-full shrink-0`}
         style={{ "--wails-draggable": "drag" } as React.CSSProperties}
       />
 
@@ -59,7 +64,22 @@ export function Sidebar({ activePage, onPageChange }: SidebarProps) {
         ))}
       </div>
 
-      <div className="mt-auto pb-2">
+      <div className="mt-auto flex flex-col items-center gap-1 pb-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors duration-150"
+              onClick={onToggleSidebar}
+            >
+              {sidebarCollapsed ? (
+                <PanelLeftOpen className="h-4 w-4" />
+              ) : (
+                <PanelLeftClose className="h-4 w-4" />
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">{t("panel.toggleSidebar")}</TooltipContent>
+        </Tooltip>
         <ModeToggle />
       </div>
     </div>

@@ -1,8 +1,10 @@
 import { useTranslation } from "react-i18next";
 import { X, TerminalSquare, Cat } from "lucide-react";
+import { useFullscreen } from "@/hooks/useFullscreen";
 import { AssetDetail } from "@/components/asset/AssetDetail";
-import { Terminal } from "@/components/terminal/Terminal";
+import { SplitPane } from "@/components/terminal/SplitPane";
 import { SettingsPage } from "@/components/settings/SettingsPage";
+import { SSHKeyManager } from "@/components/settings/SSHKeyManager";
 import { useTerminalStore } from "@/stores/terminalStore";
 import { cn } from "@/lib/utils";
 import { asset_entity } from "../../../wailsjs/go/models";
@@ -23,12 +25,39 @@ export function MainPanel({
   onConnectAsset,
 }: MainPanelProps) {
   const { t } = useTranslation();
-  const { tabs, activeTabId, setActiveTab, removeTab } = useTerminalStore();
+  const isFullscreen = useFullscreen();
+  const { tabs, activeTabId, setActiveTab, removeTab, connectingAssetIds } = useTerminalStore();
+
+  const dragRegion = (
+    <div
+      className={`${isFullscreen ? "h-2" : "h-10"} w-full shrink-0`}
+      style={{ "--wails-draggable": "drag" } as React.CSSProperties}
+    />
+  );
 
   if (activePage === "settings") {
     return (
       <div className="flex flex-1 flex-col min-w-0">
+        {dragRegion}
         <SettingsPage />
+      </div>
+    );
+  }
+
+  if (activePage === "sshkeys") {
+    return (
+      <div className="flex flex-1 flex-col min-w-0">
+        {dragRegion}
+        <div className="flex flex-col h-full">
+          <div className="px-4 py-3 border-b">
+            <h2 className="font-semibold">{t("nav.sshKeys")}</h2>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="max-w-4xl mx-auto">
+              <SSHKeyManager />
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -37,6 +66,9 @@ export function MainPanel({
 
   return (
     <div className="flex flex-1 flex-col min-w-0">
+      {/* Drag region for frameless window */}
+      {dragRegion}
+
       {/* Tab bar */}
       {tabs.length > 0 && (
         <div className="flex items-center border-b overflow-x-auto bg-background">
@@ -56,36 +88,41 @@ export function MainPanel({
               )}
             </button>
           )}
-          {tabs.map((tab) => (
-            <div
-              key={tab.id}
-              className={cn(
-                "relative flex items-center gap-1.5 px-3 py-2 text-sm shrink-0 cursor-pointer transition-colors duration-150",
-                activeTabId === tab.id
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-              )}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              <TerminalSquare className="h-3.5 w-3.5" />
-              <span className="max-w-24 truncate">{tab.assetName}</span>
-              {!tab.connected && (
-                <span className="h-1.5 w-1.5 rounded-full bg-destructive shrink-0" />
-              )}
-              <button
-                className="ml-1.5 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors duration-150"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeTab(tab.id);
-                }}
+          {tabs.map((tab) => {
+            const allDisconnected = Object.values(tab.panes).every(
+              (p) => !p.connected
+            );
+            return (
+              <div
+                key={tab.id}
+                className={cn(
+                  "relative flex items-center gap-1.5 px-3 py-2 text-sm shrink-0 cursor-pointer transition-colors duration-150",
+                  activeTabId === tab.id
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                )}
+                onClick={() => setActiveTab(tab.id)}
               >
-                <X className="h-3 w-3" />
-              </button>
-              {activeTabId === tab.id && (
-                <span className="absolute bottom-0 left-1 right-1 h-0.5 rounded-full bg-primary" />
-              )}
-            </div>
-          ))}
+                <TerminalSquare className="h-3.5 w-3.5" />
+                <span className="max-w-24 truncate">{tab.assetName}</span>
+                {allDisconnected && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-destructive shrink-0" />
+                )}
+                <button
+                  className="ml-1.5 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors duration-150"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeTab(tab.id);
+                  }}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+                {activeTabId === tab.id && (
+                  <span className="absolute bottom-0 left-1 right-1 h-0.5 rounded-full bg-primary" />
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -96,16 +133,25 @@ export function MainPanel({
             key={tab.id}
             className="absolute inset-0"
             style={{
-              display: activeTabId === tab.id ? "block" : "none",
+              visibility: activeTabId === tab.id ? "visible" : "hidden",
+              pointerEvents: activeTabId === tab.id ? "auto" : "none",
             }}
           >
-            <Terminal sessionId={tab.id} active={activeTabId === tab.id} />
+            <SplitPane
+              node={tab.splitTree}
+              tabId={tab.id}
+              isTabActive={activeTabId === tab.id}
+              activePaneId={tab.activePaneId}
+              showFocusRing={tab.splitTree.type === "split"}
+              path={[]}
+            />
           </div>
         ))}
 
         {!showTerminal && selectedAsset && (
           <AssetDetail
             asset={selectedAsset}
+            isConnecting={connectingAssetIds.has(selectedAsset.ID)}
             onEdit={() => onEditAsset(selectedAsset)}
             onDelete={() => onDeleteAsset(selectedAsset.ID)}
             onConnect={() => onConnectAsset(selectedAsset)}

@@ -7,6 +7,7 @@ type Group struct {
 	ID         int64  `gorm:"column:id;primaryKey;autoIncrement"`
 	Name       string `gorm:"column:name;type:varchar(255);not null"`
 	ParentID   int64  `gorm:"column:parent_id;index"`
+	Icon       string `gorm:"column:icon;type:varchar(100)"`
 	SortOrder  int    `gorm:"column:sort_order;default:0"`
 	Createtime int64  `gorm:"column:createtime"`
 	Updatetime int64  `gorm:"column:updatetime"`
