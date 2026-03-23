@@ -307,6 +307,9 @@ func ImportTabbySelected(ctx context.Context, data []byte, selectedIndexes []int
 			Host: host, Port: port, Username: username, AuthType: authType,
 			PrivateKeys: privateKeys, ForwardedPorts: forwardedPorts, Proxy: proxyCfg,
 		}
+		if len(privateKeys) > 0 {
+			sshCfg.KeySource = "file"
+		}
 
 		asset := &asset_entity.Asset{
 			Name: name, Type: asset_entity.AssetTypeSSH, GroupID: groupID,

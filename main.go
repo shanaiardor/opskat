@@ -4,95 +4,46 @@ import (
 	"context"
 	"embed"
 	"log"
-	"os"
 	"path/filepath"
 	"runtime"
 
-	"ops-cat/internal/repository/asset_repo"
-	"ops-cat/internal/repository/conversation_repo"
-	"ops-cat/internal/repository/group_repo"
-	"ops-cat/internal/repository/ssh_key_repo"
-	"ops-cat/internal/service/credential_svc"
-	"ops-cat/migrations"
+	"ops-cat/internal/bootstrap"
 
-	"github.com/cago-frame/cago"
-	"github.com/cago-frame/cago/configs"
-	"github.com/cago-frame/cago/configs/memory"
-	"github.com/cago-frame/cago/database/db"
 	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
-
-	_ "ops-cat/internal/pkg/code"
-	_ "github.com/cago-frame/cago/database/db/sqlite"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
-// appDataDir 返回应用数据目录
-func appDataDir() string {
-	switch runtime.GOOS {
-	case "darwin":
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, "Library", "Application Support", "ops-cat")
-	case "windows":
-		return filepath.Join(os.Getenv("APPDATA"), "ops-cat")
-	default:
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, ".config", "ops-cat")
-	}
-}
-
 func main() {
 	ctx := context.Background()
 
-	// 确保应用数据目录存在
-	dataDir := appDataDir()
-	if err := os.MkdirAll(filepath.Join(dataDir, "logs"), 0755); err != nil {
-		log.Fatalf("创建数据目录失败: %v", err)
+	// 初始化数据库、凭证、Repository、迁移
+	dataDir := bootstrap.AppDataDir()
+	if err := bootstrap.Init(ctx, bootstrap.Options{}); err != nil {
+		log.Fatalf("初始化失败: %v", err)
 	}
 
-	cfg, err := configs.NewConfig("ops-cat", configs.WithSource(memory.NewSource(map[string]interface{}{
-		"db": map[string]interface{}{
-			"driver": "sqlite",
-			"dsn":    filepath.Join(dataDir, "ops-cat.db"),
-		},
-	})))
-	if err != nil {
-		log.Fatalf("加载配置失败: %v", err)
+	// 加载应用配置（MCP 端口等）
+	if _, err := bootstrap.LoadConfig(dataDir); err != nil {
+		log.Printf("加载配置失败: %v", err)
 	}
 
-	// 初始化日志
+	// 初始化日志（桌面应用需要文件日志）
+	logsDir := filepath.Join(dataDir, "logs")
 	zapLogger, err := logger.New(
 		logger.Level("info"),
-		logger.AppendCore(logger.NewFileCore(logger.ToLevel("info"), filepath.Join(dataDir, "logs", "ops-cat.log"))),
-		logger.AppendCore(logger.NewFileCore(logger.ToLevel("error"), filepath.Join(dataDir, "logs", "error.log"))),
+		logger.AppendCore(logger.NewFileCore(logger.ToLevel("info"), filepath.Join(logsDir, "ops-cat.log"))),
+		logger.AppendCore(logger.NewFileCore(logger.ToLevel("error"), filepath.Join(logsDir, "error.log"))),
 	)
 	if err != nil {
 		log.Fatalf("初始化日志失败: %v", err)
 	}
 	logger.SetLogger(zapLogger)
-
-	// 初始化数据库
-	cago.New(ctx, cfg).
-		Registry(db.Database())
-
-	// 初始化凭证加密服务（masterKey 后续可从配置/密钥链获取）
-	credential_svc.SetDefault(credential_svc.New("ops-cat-default-master-key"))
-
-	// 注册 Repository
-	asset_repo.RegisterAsset(asset_repo.NewAsset())
-	conversation_repo.RegisterConversation(conversation_repo.NewConversation())
-	group_repo.RegisterGroup(group_repo.NewGroup())
-	ssh_key_repo.RegisterSSHKey(ssh_key_repo.NewSSHKey())
-
-	// 运行数据库迁移
-	if err := migrations.RunMigrations(db.Default()); err != nil {
-		log.Fatalf("数据库迁移失败: %v", err)
-	}
 
 	// 创建 Wails App
 	app := NewApp()
@@ -105,7 +56,8 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		OnStartup: app.startup,
+		OnStartup:  app.startup,
+		OnShutdown: func(ctx context.Context) { app.cleanup() },
 		Bind: []interface{}{
 			app,
 		},

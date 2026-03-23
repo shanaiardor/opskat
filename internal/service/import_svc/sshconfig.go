@@ -18,12 +18,12 @@ import (
 
 // sshConfigHost 解析后的 SSH Config Host 块
 type sshConfigHost struct {
-	alias        string
-	hostName     string
-	port         int
-	user         string
-	identityFile string
-	proxyJump    string
+	alias         string
+	hostName      string
+	port          int
+	user          string
+	identityFiles []string
+	proxyJump     string
 }
 
 // PreviewSSHConfig 解析 SSH Config 文件，返回预览（不写数据库）
@@ -60,7 +60,7 @@ func PreviewSSHConfig(ctx context.Context, data []byte) (*PreviewResult, error) 
 		}
 
 		authType := asset_entity.AuthTypePassword
-		if h.identityFile != "" {
+		if len(h.identityFiles) > 0 {
 			authType = asset_entity.AuthTypeKey
 		}
 
@@ -152,10 +152,11 @@ func ImportSSHConfigSelected(ctx context.Context, data []byte, selectedIndexes [
 
 		authType := asset_entity.AuthTypePassword
 		var privateKeys []string
-		if h.identityFile != "" {
+		if len(h.identityFiles) > 0 {
 			authType = asset_entity.AuthTypeKey
-			keyPath := expandPath(h.identityFile)
-			privateKeys = []string{keyPath}
+			for _, f := range h.identityFiles {
+				privateKeys = append(privateKeys, expandPath(f))
+			}
 		}
 
 		sshCfg := &asset_entity.SSHConfig{
@@ -164,6 +165,9 @@ func ImportSSHConfigSelected(ctx context.Context, data []byte, selectedIndexes [
 			Username:    user,
 			AuthType:    authType,
 			PrivateKeys: privateKeys,
+		}
+		if len(privateKeys) > 0 {
+			sshCfg.KeySource = "file"
 		}
 
 		// 使用 SSH Config 的 Host alias 作为分组依据时不分组，直接放根目录
@@ -279,7 +283,7 @@ func parseSSHConfig(content string) []sshConfigHost {
 			}
 		case "identityfile":
 			if current != nil {
-				current.identityFile = value
+				current.identityFiles = append(current.identityFiles, value)
 			}
 		case "proxyjump":
 			if current != nil {
@@ -302,26 +306,37 @@ func parseSSHConfig(content string) []sshConfigHost {
 }
 
 // splitDirective 将 SSH Config 行拆分为 key 和 value
-// 支持 "Key Value" 和 "Key=Value" 两种格式
+// 支持 "Key Value"、"Key=Value" 和 "Key = Value" 三种格式
 func splitDirective(line string) (string, string) {
-	// 先尝试 = 分隔
-	if idx := strings.Index(line, "="); idx > 0 {
-		return strings.TrimSpace(line[:idx]), strings.TrimSpace(line[idx+1:])
-	}
-	// 空格分隔
-	fields := strings.SplitN(line, " ", 2)
-	if len(fields) < 2 {
-		fields = strings.SplitN(line, "\t", 2)
-	}
-	if len(fields) < 2 {
+	// keyword 是第一个 token，以空白或 = 结束
+	idx := strings.IndexAny(line, " \t=")
+	if idx <= 0 {
 		return "", ""
 	}
-	return strings.TrimSpace(fields[0]), strings.TrimSpace(fields[1])
+	key := line[:idx]
+	rest := line[idx:]
+	// 跳过分隔符：可选空白 + 可选 = + 可选空白
+	rest = strings.TrimLeft(rest, " \t")
+	if len(rest) > 0 && rest[0] == '=' {
+		rest = rest[1:]
+	}
+	rest = strings.TrimLeft(rest, " \t")
+	if rest == "" {
+		return "", ""
+	}
+	return key, rest
 }
 
 // expandPath 展开路径中的 ~ 为 home 目录
 func expandPath(path string) string {
-	if strings.HasPrefix(path, "~/") || path == "~" {
+	if path == "~" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return home
+	}
+	if strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return path

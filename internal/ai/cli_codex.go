@@ -188,7 +188,7 @@ func (s *CodexAppServer) SendTurn(ctx context.Context, text string, onEvent func
 	for {
 		select {
 		case msg := <-s.notifyCh:
-			done := s.handleNotification(msg.Method, msg.Params, onEvent)
+			done := s.handleNotification(msg, onEvent)
 			if done {
 				return nil
 			}
@@ -204,10 +204,15 @@ type codexItem struct {
 	ID       string          `json:"id"`
 	Command  string          `json:"command"`          // commandExecution
 	Path     string          `json:"path"`             // fileRead / fileWrite
-	Output   string          `json:"output"`           // commandExecution completed
+	Output           string          `json:"output"`           // commandExecution completed
+	AggregatedOutput string          `json:"aggregatedOutput"` // commandExecution completed (Codex 格式)
 	Content  json.RawMessage `json:"content"`          // 可能是 string 或 array
 	ExitCode *int            `json:"exitCode"`         // commandExecution completed
 	Text     string          `json:"text"`             // agentMessage completed
+	Tool     string          `json:"tool"`             // mcpToolCall: 工具名
+	Server   string          `json:"server"`           // mcpToolCall: MCP server 名
+	Args     json.RawMessage `json:"arguments"`        // mcpToolCall: 参数（JSON）
+	Result   json.RawMessage `json:"result"`           // mcpToolCall: 结果（嵌套结构）
 }
 
 // contentString 安全提取 content 字段为字符串
@@ -222,8 +227,45 @@ func (item *codexItem) contentString() string {
 	return ""
 }
 
+// mcpResultText 提取 MCP 工具调用的结果文本
+// 结果结构: {"content":[{"type":"text","text":"..."}]}
+func (item *codexItem) mcpResultText() string {
+	if item.Result == nil {
+		return ""
+	}
+	var r struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(item.Result, &r); err != nil {
+		return ""
+	}
+	var texts []string
+	for _, c := range r.Content {
+		if c.Text != "" {
+			texts = append(texts, c.Text)
+		}
+	}
+	if len(texts) == 1 {
+		return texts[0]
+	}
+	result := ""
+	for _, t := range texts {
+		if result != "" {
+			result += "\n"
+		}
+		result += t
+	}
+	return result
+}
+
 // handleNotification 处理 Codex 通知事件
-func (s *CodexAppServer) handleNotification(method string, params json.RawMessage, onEvent func(StreamEvent)) bool {
+func (s *CodexAppServer) handleNotification(msg codexJSONRPC, onEvent func(StreamEvent)) bool {
+	method := msg.Method
+	params := msg.Params
+	log.Printf("[Codex] notification: method=%s params=%s", method, string(params))
 	switch method {
 	// ── 文本流式输出 ──
 	case "codex/event/agent_message_delta":
@@ -288,11 +330,14 @@ func (s *CodexAppServer) handleNotification(method string, params json.RawMessag
 
 	// ── MCP 工具权限确认（只处理一种格式，避免弹两次）──
 	case "item/tool/requestUserInput":
-		log.Printf("[MCP] requestUserInput received, forwarding to chat")
-		s.handleUserInputRequest(params, onEvent)
+		s.handleUserInputRequest(msg.ID, params, onEvent)
 
 	case "codex/event/request_user_input":
-		// 与 item/tool/requestUserInput 重复，忽略
+		log.Printf("[Codex] request_user_input (codex/event): params=%s", string(params))
+
+	// ── 本地命令执行审批 ──
+	case "item/commandExecution/requestApproval":
+		s.handleCommandApproval(msg.ID, params, onEvent)
 
 	// ── turn 生命周期 ──
 	case "turn/completed":
@@ -307,30 +352,75 @@ func (s *CodexAppServer) handleNotification(method string, params json.RawMessag
 		}
 		return true
 
+	// ── v1 item 事件（可能包含 MCP 工具调用）──
+	case "codex/event/item_started":
+		var p struct {
+			Item codexItem `json:"item"`
+		}
+		var p2 struct {
+			Msg struct {
+				Item codexItem `json:"item"`
+			} `json:"msg"`
+		}
+		if err := json.Unmarshal(params, &p); err == nil && p.Item.Type != "" {
+			s.handleItemStarted(&p.Item, onEvent)
+		} else if err := json.Unmarshal(params, &p2); err == nil && p2.Msg.Item.Type != "" {
+			s.handleItemStarted(&p2.Msg.Item, onEvent)
+		}
+
+	case "codex/event/item_completed":
+		var p struct {
+			Item codexItem `json:"item"`
+		}
+		var p2 struct {
+			Msg struct {
+				Item codexItem `json:"item"`
+			} `json:"msg"`
+		}
+		if err := json.Unmarshal(params, &p); err == nil && p.Item.Type != "" {
+			s.handleItemCompleted(&p.Item, onEvent)
+		} else if err := json.Unmarshal(params, &p2); err == nil && p2.Msg.Item.Type != "" {
+			s.handleItemCompleted(&p2.Msg.Item, onEvent)
+		}
+
 	// ── 静默忽略的事件 ──
 	case "codex/event/agent_message_content_delta",
 		"codex/event/agent_message",
-		"codex/event/item_started",
-		"codex/event/item_completed",
 		"codex/event/token_count",
 		"codex/event/task_started",
 		"codex/event/task_complete",
 		"codex/event/user_message",
 		"codex/event/mcp_startup_complete":
-		// MCP 启动完成，静默忽略
+		// 静默忽略
+
+	case "item/agentMessage/delta":
+		// v2 流式文本，尝试多种可能的格式
+		var p1 struct {
+			Delta string `json:"delta"`
+		}
+		var p2 struct {
+			Item struct {
+				Delta string `json:"delta"`
+			} `json:"item"`
+		}
+		if err := json.Unmarshal(params, &p1); err == nil && p1.Delta != "" {
+			onEvent(StreamEvent{Type: "content", Content: p1.Delta})
+		} else if err := json.Unmarshal(params, &p2); err == nil && p2.Item.Delta != "" {
+			onEvent(StreamEvent{Type: "content", Content: p2.Item.Delta})
+		}
 
 	case
-		"item/agentMessage/delta",
 		"thread/started",
 		"thread/status/changed",
 		"thread/tokenUsage/updated",
 		"account/rateLimits/updated",
 		"turn/started",
-		"configWarning":
+		"configWarning",
+		"serverRequest/resolved":
 		// 忽略
 
 	default:
-		log.Printf("[Codex] unhandled notification: method=%s params=%s", method, string(params))
+		log.Printf("[Codex] unhandled event: method=%s params=%s", method, string(params))
 	}
 
 	return false
@@ -350,7 +440,30 @@ func (s *CodexAppServer) handleItemStarted(item *codexItem, onEvent func(StreamE
 		if item.Path != "" {
 			onEvent(StreamEvent{Type: "tool_start", ToolName: "Write", ToolInput: item.Path})
 		}
-	// agentMessage, userMessage, reasoning: 忽略
+	case "mcpToolCall":
+		name := item.Tool
+		if name == "" {
+			name = "MCP Tool"
+		}
+		input := string(item.Args)
+		onEvent(StreamEvent{Type: "tool_start", ToolName: name, ToolInput: input})
+	case "agentMessage", "userMessage", "reasoning":
+		// 忽略
+	default:
+		name := item.Tool
+		if name == "" {
+			name = item.Type
+		}
+		input := string(item.Args)
+		if input == "" {
+			input = item.Command
+		}
+		if input == "" {
+			input = item.Path
+		}
+		if name != "" {
+			onEvent(StreamEvent{Type: "tool_start", ToolName: name, ToolInput: input})
+		}
 	}
 }
 
@@ -358,6 +471,9 @@ func (s *CodexAppServer) handleItemCompleted(item *codexItem, onEvent func(Strea
 	switch item.Type {
 	case "commandExecution":
 		result := item.Output
+		if result == "" {
+			result = item.AggregatedOutput
+		}
 		if item.ExitCode != nil && *item.ExitCode != 0 {
 			result = fmt.Sprintf("exit code %d\n%s", *item.ExitCode, result)
 		}
@@ -366,7 +482,30 @@ func (s *CodexAppServer) handleItemCompleted(item *codexItem, onEvent func(Strea
 		onEvent(StreamEvent{Type: "tool_result", ToolName: "Read", Content: truncateOutput(item.contentString(), 20)})
 	case "fileWrite":
 		onEvent(StreamEvent{Type: "tool_result", ToolName: "Write", Content: item.Path})
-	// agentMessage: 忽略，delta 已经发送过
+	case "mcpToolCall":
+		name := item.Tool
+		if name == "" {
+			name = "MCP Tool"
+		}
+		result := item.mcpResultText()
+		onEvent(StreamEvent{Type: "tool_result", ToolName: name, Content: truncateOutput(result, 20)})
+	case "agentMessage", "userMessage", "reasoning":
+		// 忽略，delta 已经发送过
+	default:
+		name := item.Tool
+		if name == "" {
+			name = item.Type
+		}
+		result := item.mcpResultText()
+		if result == "" {
+			result = item.Output
+		}
+		if result == "" {
+			result = item.contentString()
+		}
+		if name != "" {
+			onEvent(StreamEvent{Type: "tool_result", ToolName: name, Content: truncateOutput(result, 20)})
+		}
 	}
 }
 
@@ -413,8 +552,8 @@ type codexUserInputQuestion struct {
 }
 
 // handleUserInputRequest 处理 Codex MCP 工具权限确认请求
-// 通过 onEvent 发送 tool_confirm 到会话流，阻塞等待前端响应
-func (s *CodexAppServer) handleUserInputRequest(params json.RawMessage, onEvent func(StreamEvent)) {
+// MCP 工具调用自动同意，因为 MCP Server 的 PolicyChecker 已负责安全审核
+func (s *CodexAppServer) handleUserInputRequest(requestID *int64, params json.RawMessage, onEvent func(StreamEvent)) {
 	var req struct {
 		ThreadID  string                   `json:"threadId"`
 		TurnID    string                   `json:"turnId"`
@@ -422,47 +561,127 @@ func (s *CodexAppServer) handleUserInputRequest(params json.RawMessage, onEvent 
 		Questions []codexUserInputQuestion `json:"questions"`
 	}
 	if err := json.Unmarshal(params, &req); err != nil || len(req.Questions) == 0 {
-		log.Printf("[MCP] requestUserInput parse failed or no questions: %v", err)
+		log.Printf("[Codex] handleUserInputRequest: parse failed or no questions, err=%v, params=%s", err, string(params))
 		return
 	}
 
 	q := req.Questions[0]
-	log.Printf("[MCP] tool_confirm emitting: toolName=%s confirmId=%s", q.Header, q.ID)
+	log.Printf("[Codex] handleUserInputRequest: questionID=%s header=%q question=%q options=%+v requestID=%v",
+		q.ID, q.Header, q.Question, q.Options, requestID)
 
-	// 发送 tool_confirm 事件到会话流，前端内联显示
-	onEvent(StreamEvent{
-		Type:      "tool_confirm",
-		ToolName:  q.Header,
-		ToolInput: q.Question,
-		ConfirmID: q.ID,
-	})
+	// 不发 tool_start 事件：item/started 已在 requestUserInput 之前触发，由 handleItemStarted 处理
+	// 自动选择 "Approve this Session"（第二个选项），避免与 MCP PolicyChecker 双重审批
+	answer := "Allow"
+	if len(q.Options) > 1 {
+		answer = q.Options[1].Label // "Approve this Session"
+	} else if len(q.Options) > 0 {
+		answer = q.Options[0].Label // fallback: "Approve Once"
+	}
+	log.Printf("[Codex] handleUserInputRequest: auto-approve answer=%q", answer)
 
-	// 阻塞等待前端响应
-	var resp PermissionResponse
-	select {
-	case resp = <-s.confirmCh:
-	case <-s.ctx.Done():
+	// Codex 期望的 response 格式: {"answers": {"questionId": {"answers": ["Allow"]}}}
+	responseResult := map[string]any{
+		"answers": map[string]any{
+			q.ID: map[string]any{
+				"answers": []string{answer},
+			},
+		},
+	}
+
+	if requestID != nil {
+		resultData, _ := json.Marshal(responseResult)
+		replyMsg := codexJSONRPC{
+			ID:     requestID,
+			Result: resultData,
+		}
+		if err := s.proc.WriteJSON(replyMsg); err != nil {
+			log.Printf("[MCP] resolveUserInput response write failed: %v", err)
+		}
+	} else {
+		s.sendNotification("item/tool/resolveUserInput", map[string]any{
+			"threadId": req.ThreadID,
+			"turnId":   req.TurnID,
+			"itemId":   req.ItemID,
+			"answers": map[string]any{
+				q.ID: map[string]any{
+					"answers": []string{answer},
+				},
+			},
+		})
+	}
+}
+
+// handleCommandApproval 处理 Codex 本地命令执行审批请求
+func (s *CodexAppServer) handleCommandApproval(requestID *int64, params json.RawMessage, onEvent func(StreamEvent)) {
+	var req struct {
+		ThreadID string `json:"threadId"`
+		TurnID   string `json:"turnId"`
+		ItemID   string `json:"itemId"`
+		Reason   string `json:"reason"`
+		Command  string `json:"command"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		log.Printf("[Codex] handleCommandApproval: parse failed: %v, params=%s", err, string(params))
 		return
 	}
 
-	// 映射到 Codex 选项
-	answer := "Deny"
-	switch resp.Behavior {
-	case "allow":
-		answer = "Approve Once"
-	case "allowAll":
-		answer = "Approve this Session"
+	log.Printf("[Codex] handleCommandApproval: itemID=%s reason=%q command=%q", req.ItemID, req.Reason, req.Command)
+
+	// 生成 confirmID，通知前端在聊天内显示审批按钮
+	confirmID := fmt.Sprintf("codex_%s_%d", req.ItemID, time.Now().UnixNano())
+	onEvent(StreamEvent{
+		Type:      "tool_confirm",
+		ToolName:  "Bash",
+		ToolInput: req.Command,
+		Content:   req.Reason,
+		ConfirmID: confirmID,
+	})
+
+	// 等待前端通过 confirmCh 响应（RespondCommandConfirm fallback 路径）
+	decision := "accept"
+	select {
+	case resp := <-s.confirmCh:
+		if resp.Behavior == "deny" {
+			decision = "cancel"
+		}
+		// 通知前端更新 ToolBlock 状态
+		resultContent := resp.Behavior
+		if resultContent == "" {
+			resultContent = "allow"
+		}
+		onEvent(StreamEvent{
+			Type:      "tool_confirm_result",
+			ConfirmID: confirmID,
+			Content:   resultContent,
+		})
+	case <-s.ctx.Done():
+		decision = "cancel"
 	}
 
-	// 回复 Codex
-	s.sendNotification("item/tool/resolveUserInput", map[string]any{
+	log.Printf("[Codex] handleCommandApproval: decision=%s", decision)
+
+	// 回复审批决策
+	response := map[string]any{
 		"threadId": req.ThreadID,
 		"turnId":   req.TurnID,
 		"itemId":   req.ItemID,
-		"answers": []map[string]any{
-			{"id": q.ID, "value": answer},
-		},
-	})
+		"decision": decision,
+	}
+
+	if requestID != nil {
+		resultData, _ := json.Marshal(response)
+		replyMsg := codexJSONRPC{
+			ID:     requestID,
+			Result: resultData,
+		}
+		if err := s.proc.WriteJSON(replyMsg); err != nil {
+			log.Printf("[Codex] handleCommandApproval response write failed: %v", err)
+		}
+	} else {
+		if err := s.sendNotification("item/commandExecution/resolveApproval", response); err != nil {
+			log.Printf("[Codex] handleCommandApproval notification failed: %v", err)
+		}
+	}
 }
 
 // sendRequest 发送 JSON-RPC 请求并等待响应

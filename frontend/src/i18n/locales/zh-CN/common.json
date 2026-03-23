@@ -237,6 +237,7 @@
   "ai": {
     "title": "AI 助手",
     "placeholder": "输入消息...",
+    "sendPlaceholder": "输入消息... Ctrl+Enter 发送",
     "send": "发送",
     "notConfigured": "请在设置中配置 AI Provider",
     "initNoSelection": "请先在左侧选择一个资产或分组",
@@ -249,7 +250,9 @@
     "commandConfirmHint": "该命令需要确认后才能执行",
     "commandConfirmAllow": "允许",
     "commandConfirmAllowAll": "始终允许",
-    "commandConfirmDeny": "拒绝"
+    "commandConfirmDeny": "拒绝",
+    "deleteConversationTitle": "删除对话",
+    "deleteConversationDesc": "确定要删除这个对话吗？此操作不可撤销。"
   },
   "shortcut": {
     "title": "快捷键",
@@ -326,6 +329,60 @@
       "brightCyan": "亮青",
       "brightWhite": "亮白"
     }
+  },
+  "integration": {
+    "title": "集成",
+    "desc": "CLI 工具和 AI 技能集成",
+    "cli": "opsctl CLI",
+    "cliDesc": "无需 GUI 即可管理资产的命令行工具",
+    "installed": "已安装",
+    "notInstalled": "未安装",
+    "version": "版本",
+    "path": "路径",
+    "install": "安装",
+    "installing": "安装中...",
+    "installSuccess": "安装成功",
+    "installFailed": "安装失败",
+    "installDir": "安装目录",
+    "pathHint": "如果该目录不在 PATH 中，请手动添加",
+    "noEmbedded": "未嵌入二进制文件，请使用 make build-embed 构建",
+    "manualInstall": "手动安装",
+    "manualInstallHint": "或从源码安装：",
+    "dataDir": "数据目录",
+    "dataDirDesc": "桌面端和 CLI 共享的数据库位置",
+    "refresh": "刷新",
+    "skill": "Claude Code 技能",
+    "skillDesc": "安装技能文件，让 Claude Code / Codex 使用 opsctl 管理你的资产",
+    "skillInstalled": "已安装",
+    "skillNotInstalled": "未安装",
+    "skillInstall": "安装技能",
+    "skillUpdate": "更新技能",
+    "skillInstalling": "安装中...",
+    "skillInstallSuccess": "技能安装成功",
+    "skillPath": "技能文件路径",
+    "skillPreview": "预览",
+    "update": "更新"
+  },
+  "opsctlApproval": {
+    "title": "CLI 操作审批",
+    "description": "opsctl 正在请求批准以下操作：",
+    "allow": "允许",
+    "deny": "拒绝",
+    "typeExec": "执行命令",
+    "typeCp": "文件传输",
+    "typeCreate": "创建资产",
+    "typeUpdate": "更新资产"
+  },
+  "planApproval": {
+    "title": "批量计划审批",
+    "description": "opsctl 正在请求批准以下批量计划：",
+    "approveAll": "全部允许",
+    "deny": "拒绝",
+    "typeExec": "执行",
+    "typeCp": "传输",
+    "typeCreate": "创建",
+    "typeUpdate": "更新",
+    "itemCount": "共 {{count}} 项操作"
   },
   "sftp": {
     "upload": "上传文件",

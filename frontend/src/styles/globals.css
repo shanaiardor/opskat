@@ -152,6 +152,14 @@
   }
 }
 
+@layer base {
+  /* Prevent Radix ScrollArea's internal display:table div from
+     causing horizontal expansion when content (e.g. <pre>) is wide */
+  [data-radix-scroll-area-viewport] > div {
+    display: block !important;
+  }
+}
+
 @layer components {
   .tree-group-content {
     display: grid;

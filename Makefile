@@ -1,4 +1,4 @@
-.PHONY: dev run build clean install
+.PHONY: dev run build build-embed clean install build-cli build-cli-upx install-cli
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
@@ -24,6 +24,14 @@ run: build
 build:
 	wails build -ldflags="-s -w"
 
+# 构建生产版本（内嵌 opsctl CLI）
+build-embed: build-cli-embed
+	wails build -ldflags="-s -w" -tags embed_opsctl
+
+# 构建 opsctl 用于嵌入桌面端
+build-cli-embed:
+	go build -ldflags="-s -w" -o ./internal/embedded/opsctl_bin ./cmd/opsctl/
+
 # 构建生产版本（UPX 压缩，需要安装 upx）
 build-upx:
 	wails build -ldflags="-s -w"
@@ -33,6 +41,18 @@ build-upx:
 install:
 	cd frontend && pnpm install
 
+# 构建 opsctl CLI
+build-cli:
+	go build -ldflags="-s -w" -o ./build/bin/opsctl ./cmd/opsctl/
+
+# 构建 opsctl CLI（UPX 压缩）
+build-cli-upx: build-cli
+	upx $(UPX_FLAGS) ./build/bin/opsctl
+
+# 安装 opsctl 到 GOPATH/bin
+install-cli:
+	go install ./cmd/opsctl/
+
 # 清理构建产物
 clean:
-	rm -rf build/bin frontend/dist
+	rm -rf build/bin frontend/dist internal/embedded/opsctl_bin

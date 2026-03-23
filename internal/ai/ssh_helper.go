@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"time"
 
 	"ops-cat/internal/model/entity/asset_entity"
+	"ops-cat/internal/service/asset_svc"
 	"ops-cat/internal/service/credential_svc"
 	"ops-cat/internal/service/ssh_key_svc"
 
@@ -23,12 +26,21 @@ func resolveAssetCredentials(ctx context.Context, cfg *asset_entity.SSHConfig) (
 		}
 		return decrypted, "", nil
 	}
-	if cfg.AuthType == "key" && cfg.KeySource == "managed" && cfg.KeyID > 0 {
-		privKey, err := ssh_key_svc.GetPrivateKey(ctx, cfg.KeyID)
-		if err != nil {
-			return "", "", fmt.Errorf("获取密钥失败: %w", err)
+	if cfg.AuthType == "key" {
+		if cfg.KeySource == "managed" && cfg.KeyID > 0 {
+			privKey, err := ssh_key_svc.GetPrivateKey(ctx, cfg.KeyID)
+			if err != nil {
+				return "", "", fmt.Errorf("获取密钥失败: %w", err)
+			}
+			return "", privKey, nil
 		}
-		return "", privKey, nil
+		if cfg.KeySource == "file" && len(cfg.PrivateKeys) > 0 {
+			data, err := os.ReadFile(cfg.PrivateKeys[0])
+			if err != nil {
+				return "", "", fmt.Errorf("读取私钥文件失败: %w", err)
+			}
+			return "", string(data), nil
+		}
 	}
 	return "", "", nil
 }
@@ -121,4 +133,123 @@ func executeWithSFTP(cfg *asset_entity.SSHConfig, password, key string, fn func(
 	defer sftpClient.Close()
 
 	return fn(sftpClient)
+}
+
+// DialSSHClient 创建 SSH 客户端连接，自动解析凭据。调用者需要关闭 client。
+func DialSSHClient(ctx context.Context, assetID int64) (*ssh.Client, error) {
+	_, sshCfg, password, key, err := resolveAssetSSH(ctx, assetID)
+	if err != nil {
+		return nil, err
+	}
+	return createSSHClient(sshCfg, password, key)
+}
+
+// ExecWithStdio 在远程服务器执行命令，直接连接 stdio（支持管道）
+func ExecWithStdio(ctx context.Context, assetID int64, command string, stdin io.Reader, stdout, stderr io.Writer) error {
+	_, sshCfg, password, key, err := resolveAssetSSH(ctx, assetID)
+	if err != nil {
+		return err
+	}
+
+	client, err := createSSHClient(sshCfg, password, key)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		return fmt.Errorf("创建会话失败: %w", err)
+	}
+	defer session.Close()
+
+	if stdin != nil {
+		session.Stdin = stdin
+	}
+	session.Stdout = stdout
+	session.Stderr = stderr
+
+	return session.Run(command)
+}
+
+// CopyBetweenAssets 在两个资产间直接传输文件（SFTP 流式，不经本地磁盘）
+func CopyBetweenAssets(ctx context.Context, srcAssetID int64, srcPath string, dstAssetID int64, dstPath string) error {
+	// 解析源资产凭证
+	srcAsset, srcCfg, srcPassword, srcKey, err := resolveAssetSSH(ctx, srcAssetID)
+	if err != nil {
+		return fmt.Errorf("源资产解析失败: %w", err)
+	}
+	_ = srcAsset
+
+	// 解析目标资产凭证
+	dstAsset, dstCfg, dstPassword, dstKey, err := resolveAssetSSH(ctx, dstAssetID)
+	if err != nil {
+		return fmt.Errorf("目标资产解析失败: %w", err)
+	}
+	_ = dstAsset
+
+	// 创建 SSH 客户端
+	srcClient, err := createSSHClient(srcCfg, srcPassword, srcKey)
+	if err != nil {
+		return fmt.Errorf("源资产SSH连接失败: %w", err)
+	}
+	defer srcClient.Close()
+
+	dstClient, err := createSSHClient(dstCfg, dstPassword, dstKey)
+	if err != nil {
+		return fmt.Errorf("目标资产SSH连接失败: %w", err)
+	}
+	defer dstClient.Close()
+
+	// 创建 SFTP 客户端
+	srcSFTP, err := sftp.NewClient(srcClient)
+	if err != nil {
+		return fmt.Errorf("源资产SFTP连接失败: %w", err)
+	}
+	defer srcSFTP.Close()
+
+	dstSFTP, err := sftp.NewClient(dstClient)
+	if err != nil {
+		return fmt.Errorf("目标资产SFTP连接失败: %w", err)
+	}
+	defer dstSFTP.Close()
+
+	// 流式传输
+	srcFile, err := srcSFTP.Open(srcPath)
+	if err != nil {
+		return fmt.Errorf("打开源文件失败: %w", err)
+	}
+	defer srcFile.Close()
+
+	dstFile, err := dstSFTP.Create(dstPath)
+	if err != nil {
+		return fmt.Errorf("创建目标文件失败: %w", err)
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return fmt.Errorf("文件传输失败: %w", err)
+	}
+
+	return nil
+}
+
+// resolveAssetSSHByID 根据资产 ID 解析 SSH 连接所需信息（导出版本）
+func ResolveAssetSSHByID(ctx context.Context, assetID int64) (*asset_entity.SSHConfig, string, string, error) {
+	asset, err := asset_svc.Asset().Get(ctx, assetID)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("资产不存在: %w", err)
+	}
+	if !asset.IsSSH() {
+		return nil, "", "", fmt.Errorf("资产不是SSH类型")
+	}
+	sshCfg, err := asset.GetSSHConfig()
+	if err != nil {
+		return nil, "", "", fmt.Errorf("获取SSH配置失败: %w", err)
+	}
+	password, key, err := resolveAssetCredentials(ctx, sshCfg)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("解析凭据失败: %w", err)
+	}
+	return sshCfg, password, key, nil
 }

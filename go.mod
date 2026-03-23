@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/cago-frame/cago v0.0.0-20260307042250-c4ff92923947
 	github.com/go-gormigrate/gormigrate/v2 v2.1.2
+	github.com/google/uuid v1.6.0
 	github.com/mark3labs/mcp-go v0.45.0
 	github.com/pkg/sftp v1.13.10
 	github.com/smartystreets/goconvey v1.8.1
@@ -13,6 +14,7 @@ require (
 	go.uber.org/mock v0.6.0
 	golang.org/x/crypto v0.47.0
 	golang.org/x/net v0.49.0
+	golang.org/x/term v0.40.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/gorm v1.25.12
 	mvdan.cc/sh/v3 v3.13.0
@@ -46,7 +48,6 @@ require (
 	github.com/go-sql-driver/mysql v1.8.1 // indirect
 	github.com/goccy/go-json v0.10.3 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gopherjs/gopherjs v1.17.2 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.19.1 // indirect

@@ -5,7 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -13,12 +15,17 @@ import (
 	"time"
 
 	"ops-cat/internal/ai"
+	"ops-cat/internal/approval"
+	"ops-cat/internal/bootstrap"
+	"ops-cat/internal/embedded"
 	"ops-cat/internal/model/entity/asset_entity"
 	"ops-cat/internal/model/entity/conversation_entity"
 	"ops-cat/internal/model/entity/group_entity"
+	"ops-cat/internal/model/entity/plan_entity"
 	"ops-cat/internal/model/entity/ssh_key_entity"
 	"ops-cat/internal/repository/asset_repo"
 	"ops-cat/internal/repository/group_repo"
+	"ops-cat/internal/repository/plan_repo"
 	"ops-cat/internal/service/asset_svc"
 	"ops-cat/internal/service/backup_svc"
 	"ops-cat/internal/service/conversation_svc"
@@ -63,6 +70,8 @@ type App struct {
 	githubAuthCancel      context.CancelFunc
 	permissionChan        chan ai.PermissionResponse // 前端权限响应 channel（CLI 工具用）
 	pendingConfirms       sync.Map                   // map[string]chan ConfirmResponse（run_command 确认用）
+	pendingApprovals      sync.Map                   // map[string]chan bool（opsctl 审批用）
+	approvalServer        *approval.Server           // opsctl 审批 Unix socket 服务
 	pendingAuthResponses  sync.Map                   // map[string]chan []string（keyboard-interactive 认证响应用）
 	pendingConnections    sync.Map                   // map[string]context.CancelFunc（异步连接取消用）
 	mu                    sync.Mutex                 // 保护 connCounter
@@ -83,13 +92,37 @@ func NewApp() *App {
 	}
 }
 
+// GetMCPPort 获取当前 MCP 端口配置
+func (a *App) GetMCPPort() int {
+	cfg := bootstrap.GetConfig()
+	if cfg == nil {
+		return 0
+	}
+	return cfg.MCPPort
+}
+
+// SetMCPPort 设置 MCP 端口并保存到配置
+func (a *App) SetMCPPort(port int) error {
+	cfg := bootstrap.GetConfig()
+	if cfg == nil {
+		cfg = &bootstrap.AppConfig{}
+	}
+	cfg.MCPPort = port
+	return bootstrap.SaveConfig(cfg)
+}
+
 // SetAIProvider 设置 AI provider 并创建 agent
-// mcpPort: MCP Server 端口，0 为随机端口
-func (a *App) SetAIProvider(providerType, apiBase, apiKey, model string, mcpPort int) error {
+func (a *App) SetAIProvider(providerType, apiBase, apiKey, model string) error {
 	// 停止旧的 MCP Server
 	a.stopMCPServer()
 	a.aiProviderType = providerType
 	a.aiModel = model
+
+	// 从配置读取 MCP 端口
+	mcpPort := 0
+	if cfg := bootstrap.GetConfig(); cfg != nil {
+		mcpPort = cfg.MCPPort
+	}
 
 	// 创建共用的命令权限检查器
 	checker := ai.NewCommandPolicyChecker(a.makeCommandConfirmFunc())
@@ -108,12 +141,8 @@ func (a *App) SetAIProvider(providerType, apiBase, apiKey, model string, mcpPort
 		}
 		// 启动 MCP Server（使用应用数据目录作为默认配置目录），共用同一个 checker
 		mcpSrv := ai.NewMCPServer(checker)
-		if err := mcpSrv.Start(a.ctx, appDataDir(), mcpPort); err != nil {
-			// 指定了固定端口但启动失败，返回错误
-			if mcpPort > 0 {
-				return fmt.Errorf("MCP Server 启动失败: %w", err)
-			}
-			fmt.Printf("MCP Server 启动失败: %v\n", err)
+		if err := mcpSrv.Start(a.ctx, bootstrap.AppDataDir(), mcpPort); err != nil {
+			return fmt.Errorf("MCP Server 启动失败: %w", err)
 		} else {
 			a.mcpServer = mcpSrv
 			// 如果有当前会话的工作目录，写入 MCP 配置
@@ -136,7 +165,7 @@ func (a *App) SetAIProvider(providerType, apiBase, apiKey, model string, mcpPort
 	default:
 		provider = ai.NewOpenAIProvider(providerType, apiBase, apiKey, model)
 	}
-	a.aiAgent = ai.NewAgent(provider, ai.NewDefaultToolExecutor(), checker)
+	a.aiAgent = ai.NewAgent(provider, ai.NewAuditingExecutor(ai.NewDefaultToolExecutor()), checker)
 	return nil
 }
 
@@ -151,6 +180,143 @@ func (a *App) stopMCPServer() {
 // startup Wails启动回调
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.startApprovalServer()
+}
+
+// startApprovalServer 启动 opsctl 审批 Unix socket 服务
+func (a *App) startApprovalServer() {
+	handler := func(req approval.ApprovalRequest) approval.ApprovalResponse {
+		// 计划审批
+		if req.Type == "plan" {
+			return a.handlePlanApproval(req)
+		}
+
+		// 单条审批
+		confirmID := fmt.Sprintf("opsctl_%d", time.Now().UnixNano())
+
+		wailsRuntime.EventsEmit(a.ctx, "opsctl:approval", map[string]any{
+			"confirm_id": confirmID,
+			"type":       req.Type,
+			"asset_id":   req.AssetID,
+			"asset_name": req.AssetName,
+			"command":    req.Command,
+			"detail":     req.Detail,
+		})
+
+		ch := make(chan bool, 1)
+		a.pendingApprovals.Store(confirmID, ch)
+		defer a.pendingApprovals.Delete(confirmID)
+
+		select {
+		case approved := <-ch:
+			if approved {
+				return approval.ApprovalResponse{Approved: true}
+			}
+			return approval.ApprovalResponse{Approved: false, Reason: "user denied"}
+		case <-a.ctx.Done():
+			return approval.ApprovalResponse{Approved: false, Reason: "app shutting down"}
+		}
+	}
+
+	srv := approval.NewServer(handler)
+	sockPath := approval.SocketPath(bootstrap.AppDataDir())
+	if err := srv.Start(sockPath); err != nil {
+		log.Printf("Approval server failed to start: %v", err)
+		return
+	}
+	a.approvalServer = srv
+}
+
+// handlePlanApproval 处理批量计划审批
+func (a *App) handlePlanApproval(req approval.ApprovalRequest) approval.ApprovalResponse {
+	ctx := a.langCtx()
+	sessionID := req.PlanSessionID
+
+	// 写入 DB
+	session := &plan_entity.PlanSession{
+		ID:          sessionID,
+		Description: req.Description,
+		Status:      plan_entity.PlanStatusPending,
+		Createtime:  time.Now().Unix(),
+	}
+	if err := plan_repo.Plan().CreateSession(ctx, session); err != nil {
+		return approval.ApprovalResponse{Approved: false, Reason: "failed to create plan session"}
+	}
+
+	var items []*plan_entity.PlanItem
+	for i, pi := range req.PlanItems {
+		items = append(items, &plan_entity.PlanItem{
+			PlanSessionID: sessionID,
+			ItemIndex:     i,
+			ToolName:      pi.Type,
+			AssetID:       pi.AssetID,
+			AssetName:     pi.AssetName,
+			Command:       pi.Command,
+			Detail:        pi.Detail,
+		})
+	}
+	if err := plan_repo.Plan().CreateItems(ctx, items); err != nil {
+		return approval.ApprovalResponse{Approved: false, Reason: "failed to create plan items"}
+	}
+
+	// 构建前端事件数据
+	eventItems := make([]map[string]any, 0, len(req.PlanItems))
+	for _, pi := range req.PlanItems {
+		eventItems = append(eventItems, map[string]any{
+			"type":       pi.Type,
+			"asset_id":   pi.AssetID,
+			"asset_name": pi.AssetName,
+			"command":    pi.Command,
+			"detail":     pi.Detail,
+		})
+	}
+
+	wailsRuntime.EventsEmit(a.ctx, "opsctl:plan-approval", map[string]any{
+		"session_id":  sessionID,
+		"description": req.Description,
+		"items":       eventItems,
+	})
+
+	// 等待前端响应
+	ch := make(chan bool, 1)
+	a.pendingApprovals.Store(sessionID, ch)
+	defer a.pendingApprovals.Delete(sessionID)
+
+	select {
+	case approved := <-ch:
+		if approved {
+			_ = plan_repo.Plan().UpdateSessionStatus(ctx, sessionID, plan_entity.PlanStatusApproved)
+			return approval.ApprovalResponse{Approved: true, PlanSessionID: sessionID}
+		}
+		_ = plan_repo.Plan().UpdateSessionStatus(ctx, sessionID, plan_entity.PlanStatusRejected)
+		return approval.ApprovalResponse{Approved: false, Reason: "user denied", PlanSessionID: sessionID}
+	case <-a.ctx.Done():
+		_ = plan_repo.Plan().UpdateSessionStatus(ctx, sessionID, plan_entity.PlanStatusRejected)
+		return approval.ApprovalResponse{Approved: false, Reason: "app shutting down"}
+	}
+}
+
+// RespondOpsctlApproval 前端响应 opsctl 审批请求
+func (a *App) RespondOpsctlApproval(confirmID string, approved bool) {
+	if v, ok := a.pendingApprovals.Load(confirmID); ok {
+		ch := v.(chan bool)
+		select {
+		case ch <- approved:
+		default:
+		}
+	}
+}
+
+// RespondPlanApproval 前端响应计划审批请求
+func (a *App) RespondPlanApproval(sessionID string, approved bool) {
+	a.RespondOpsctlApproval(sessionID, approved)
+}
+
+// cleanup 关闭审批服务等资源
+func (a *App) cleanup() {
+	if a.approvalServer != nil {
+		a.approvalServer.Stop()
+	}
 }
 
 // SetLanguage 前端调用，同步语言设置到后端
@@ -1036,7 +1202,7 @@ func (a *App) CreateConversation() (*conversation_entity.Conversation, error) {
 
 	// 本地 CLI 模式创建工作目录
 	if a.aiProviderType == "local_cli" {
-		workDir := filepath.Join(appDataDir(), "workspaces", fmt.Sprintf("conv-%d", time.Now().UnixMilli()))
+		workDir := filepath.Join(bootstrap.AppDataDir(), "workspaces", fmt.Sprintf("conv-%d", time.Now().UnixMilli()))
 		conv.WorkDir = workDir
 	}
 
@@ -1046,7 +1212,7 @@ func (a *App) CreateConversation() (*conversation_entity.Conversation, error) {
 
 	// 如果有工作目录，更新路径为带 ID 的稳定路径
 	if conv.WorkDir != "" {
-		stableDir := filepath.Join(appDataDir(), "workspaces", fmt.Sprintf("%d", conv.ID))
+		stableDir := filepath.Join(bootstrap.AppDataDir(), "workspaces", fmt.Sprintf("%d", conv.ID))
 		if err := os.Rename(conv.WorkDir, stableDir); err == nil {
 			conv.WorkDir = stableDir
 			_ = conversation_svc.Conversation().Update(ctx, conv)
@@ -1138,11 +1304,14 @@ func (a *App) SendAIMessage(messages []ai.Message) error {
 
 	// 自动创建会话（首次发消息时）
 	if a.currentConversationID == 0 {
-		conv, err := a.CreateConversation()
+		_, err := a.CreateConversation()
 		if err != nil {
 			return fmt.Errorf("创建会话失败: %w", err)
 		}
-		// 用首条用户消息作为标题
+	}
+
+	// 更新会话标题（如果仍是默认标题"新对话"）
+	if conv, err := conversation_svc.Conversation().Get(ctx, a.currentConversationID); err == nil && conv.Title == "新对话" {
 		for _, msg := range messages {
 			if msg.Role == ai.RoleUser {
 				title := string(msg.Content)
@@ -1169,7 +1338,11 @@ func (a *App) SendAIMessage(messages []ai.Message) error {
 	fullMessages = append(fullMessages, messages...)
 
 	go func() {
-		err := a.aiAgent.Chat(a.ctx, fullMessages, func(event ai.StreamEvent) {
+		// 注入审计上下文
+		chatCtx := ai.WithAuditSource(a.ctx, "ai")
+		chatCtx = ai.WithConversationID(chatCtx, convID)
+
+		err := a.aiAgent.Chat(chatCtx, fullMessages, func(event ai.StreamEvent) {
 			wailsRuntime.EventsEmit(a.ctx, eventName, event)
 		})
 		if err != nil {
@@ -1788,5 +1961,139 @@ func (a *App) ImportFromGist(gistID, password, token string) error {
 	}
 
 	return backup_svc.Import(a.langCtx(), &data)
+}
+
+// GetDataDir 返回应用数据目录
+func (a *App) GetDataDir() string {
+	return bootstrap.AppDataDir()
+}
+
+// OpsctlInfo opsctl CLI 检测结果
+type OpsctlInfo struct {
+	Installed bool   `json:"installed"`
+	Path      string `json:"path"`
+	Version   string `json:"version"`
+	Embedded  bool   `json:"embedded"` // 桌面端是否内嵌了 opsctl 二进制
+}
+
+// DetectOpsctl 检测 opsctl CLI 是否已安装
+func (a *App) DetectOpsctl() OpsctlInfo {
+	info := OpsctlInfo{
+		Embedded: embedded.HasEmbeddedOpsctl(),
+	}
+	path, err := exec.LookPath("opsctl")
+	if err != nil {
+		return info
+	}
+	info.Installed = true
+	info.Path = path
+	out, err := exec.Command(path, "version").Output()
+	if err == nil {
+		info.Version = strings.TrimSpace(string(out))
+	}
+	return info
+}
+
+// GetOpsctlInstallDir 返回默认安装目录
+func (a *App) GetOpsctlInstallDir() string {
+	return embedded.DefaultInstallDir()
+}
+
+// InstallOpsctl 将内嵌的 opsctl 二进制安装到指定目录
+func (a *App) InstallOpsctl(targetDir string) (string, error) {
+	if targetDir == "" {
+		targetDir = embedded.DefaultInstallDir()
+	}
+	return embedded.InstallOpsctl(targetDir)
+}
+
+// SkillInfo Claude Code Skill 检测结果
+type SkillInfo struct {
+	Installed bool   `json:"installed"`
+	Path      string `json:"path"`
+}
+
+// DetectClaudeSkill 检测 Claude Code Skill 是否已安装
+func (a *App) DetectClaudeSkill() SkillInfo {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return SkillInfo{}
+	}
+	skillPath := filepath.Join(home, ".claude", "commands", "ops-cat.md")
+	if _, err := os.Stat(skillPath); err == nil {
+		return SkillInfo{Installed: true, Path: skillPath}
+	}
+	return SkillInfo{Path: skillPath}
+}
+
+// InstallClaudeSkill 安装 Claude Code Skill 文件
+func (a *App) InstallClaudeSkill() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("get home directory failed: %w", err)
+	}
+
+	skillDir := filepath.Join(home, ".claude", "commands")
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		return "", fmt.Errorf("create directory failed: %w", err)
+	}
+
+	skillPath := filepath.Join(skillDir, "ops-cat.md")
+	content := a.generateSkillContent()
+
+	if err := os.WriteFile(skillPath, []byte(content), 0644); err != nil {
+		return "", fmt.Errorf("write skill file failed: %w", err)
+	}
+
+	return skillPath, nil
+}
+
+// GetSkillPreview 获取 Skill 文件内容预览
+func (a *App) GetSkillPreview() string {
+	return a.generateSkillContent()
+}
+
+func (a *App) generateSkillContent() string {
+	dataDir := bootstrap.AppDataDir()
+
+	return fmt.Sprintf(`# ops-cat Asset Management
+
+Use the opsctl CLI to manage server assets configured in the ops-cat desktop app.
+The CLI shares the same SQLite database and credentials, so any asset visible in the GUI is available here.
+
+## Data Directory
+
+%s
+
+## Available Commands
+
+### List resources
+- `+"`"+`opsctl list assets [--type ssh] [--group-id <id>]`+"`"+` — List all assets (optionally filter by type or group)
+- `+"`"+`opsctl list groups`+"`"+` — List all asset groups
+
+### Get resource details
+- `+"`"+`opsctl get asset <id>`+"`"+` — Show full details for a single asset (JSON)
+
+### Execute remote commands
+- `+"`"+`opsctl exec <asset-id> -- <command>`+"`"+` — Run a command on the remote server via SSH
+  - Supports stdin piping: `+"`"+`echo "data" | opsctl exec 1 -- cat`+"`"+`
+  - Supports chaining: `+"`"+`opsctl exec 1 -- cat /etc/hosts | opsctl exec 2 -- tee /tmp/hosts`+"`"+`
+
+### File transfer (scp-style)
+- `+"`"+`opsctl cp <local-path> <asset-id>:<remote-path>`+"`"+` — Upload file to remote server
+- `+"`"+`opsctl cp <asset-id>:<remote-path> <local-path>`+"`"+` — Download file from remote server
+- `+"`"+`opsctl cp <src-id>:<path> <dst-id>:<path>`+"`"+` — Transfer file between two remote servers (direct streaming)
+
+### Create / Update assets
+- `+"`"+`opsctl create asset --name <name> --host <host> --port <port> --username <user> [--auth-type password|key] [--group-id <id>]`+"`"+`
+- `+"`"+`opsctl update asset <id> [--name <name>] [--host <host>] [--port <port>] [--username <user>]`+"`"+`
+
+## Workflow Tips
+
+1. Start by listing assets: `+"`"+`opsctl list assets`+"`"+`
+2. Use `+"`"+`opsctl exec <id> -- <command>`+"`"+` to inspect or manage servers
+3. Use `+"`"+`opsctl cp`+"`"+` for file transfers between local and remote, or between servers
+4. All output is JSON, suitable for piping to jq or other tools
+`, dataDir)
 }
 

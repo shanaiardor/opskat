@@ -32,7 +32,11 @@ export function DeleteGroup(arg1:number,arg2:boolean):Promise<void>;
 
 export function DeleteSSHKey(arg1:number):Promise<void>;
 
+export function DetectClaudeSkill():Promise<main.SkillInfo>;
+
 export function DetectLocalCLIs():Promise<Array<ai.CLIInfo>>;
+
+export function DetectOpsctl():Promise<main.OpsctlInfo>;
 
 export function DisconnectSSH(arg1:string):Promise<void>;
 
@@ -50,15 +54,23 @@ export function GetAsset(arg1:number):Promise<asset_entity.Asset>;
 
 export function GetCurrentConversationID():Promise<number>;
 
+export function GetDataDir():Promise<string>;
+
 export function GetGitHubUser(arg1:string):Promise<backup_svc.GitHubUser>;
 
 export function GetInitContext(arg1:number,arg2:number):Promise<string>;
 
 export function GetLanguage():Promise<string>;
 
+export function GetMCPPort():Promise<number>;
+
+export function GetOpsctlInstallDir():Promise<string>;
+
 export function GetSSHKeyPublicKey(arg1:number):Promise<string>;
 
 export function GetSSHKeyUsage(arg1:number):Promise<Array<string>>;
+
+export function GetSkillPreview():Promise<string>;
 
 export function ImportFromGist(arg1:string,arg2:string,arg3:string):Promise<void>;
 
@@ -69,6 +81,10 @@ export function ImportSSHKeyFile(arg1:string,arg2:string):Promise<ssh_key_entity
 export function ImportSSHKeyPEM(arg1:string,arg2:string,arg3:string):Promise<ssh_key_entity.SSHKey>;
 
 export function ImportTabbySelected(arg1:Array<number>):Promise<import_svc.ImportResult>;
+
+export function InstallClaudeSkill():Promise<string>;
+
+export function InstallOpsctl(arg1:string):Promise<string>;
 
 export function ListAssets(arg1:string,arg2:number):Promise<Array<asset_entity.Asset>>;
 
@@ -100,7 +116,11 @@ export function RespondAuthChallenge(arg1:string,arg2:Array<string>):Promise<voi
 
 export function RespondCommandConfirm(arg1:string,arg2:string):Promise<void>;
 
+export function RespondOpsctlApproval(arg1:string,arg2:boolean):Promise<void>;
+
 export function RespondPermission(arg1:string,arg2:string):Promise<void>;
+
+export function RespondPlanApproval(arg1:string,arg2:boolean):Promise<void>;
 
 export function SFTPCancelTransfer(arg1:string):Promise<void>;
 
@@ -126,9 +146,11 @@ export function SelectSSHKeyFile():Promise<main.LocalSSHKeyInfo>;
 
 export function SendAIMessage(arg1:Array<ai.Message>):Promise<void>;
 
-export function SetAIProvider(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number):Promise<void>;
+export function SetAIProvider(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function SetLanguage(arg1:string):Promise<void>;
+
+export function SetMCPPort(arg1:number):Promise<void>;
 
 export function SplitSSH(arg1:string,arg2:number,arg3:number):Promise<string>;
 

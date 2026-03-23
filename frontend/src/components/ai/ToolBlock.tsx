@@ -64,7 +64,7 @@ export function ToolBlock({ block }: ToolBlockProps) {
           {block.toolName}
         </span>
         {block.toolInput && (
-          <code className="truncate min-w-0 text-muted-foreground font-mono text-[11px] ml-0.5">
+          <code className="min-w-0 break-all text-muted-foreground font-mono text-[11px] ml-0.5">
             {block.toolInput}
           </code>
         )}
@@ -77,12 +77,12 @@ export function ToolBlock({ block }: ToolBlockProps) {
 
       {/* 确认按钮区域 */}
       {isPendingConfirm && block.confirmId && (
-        <div className="border-t border-border/40 px-2.5 py-2 flex items-center justify-between">
-          <span className="text-xs text-amber-500 flex items-center gap-1">
-            <Shield className="h-3 w-3" />
+        <div className="border-t border-border/40 px-2.5 py-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-amber-500 flex items-center gap-1 mr-auto">
+            <Shield className="h-3 w-3 shrink-0" />
             {t("ai.commandConfirmHint")}
           </span>
-          <div className="flex gap-1.5">
+          <div className="flex gap-1.5 shrink-0">
             <Button
               size="sm"
               variant="outline"

@@ -1,0 +1,156 @@
+package approval
+
+import (
+	"encoding/json"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"sync"
+)
+
+// ApprovalRequest is sent from opsctl to the desktop app.
+type ApprovalRequest struct {
+	Type          string     `json:"type"`                            // "exec"|"cp"|"create"|"update"|"plan"
+	AssetID       int64      `json:"asset_id,omitempty"`
+	AssetName     string     `json:"asset_name,omitempty"`
+	Command       string     `json:"command,omitempty"`
+	Detail        string     `json:"detail"`
+	PlanSessionID string     `json:"plan_session_id,omitempty"`       // plan submit 时由 CLI 生成
+	PlanItems     []PlanItem `json:"plan_items,omitempty"`            // type="plan" 时使用
+	Description   string     `json:"description,omitempty"`           // 计划描述
+}
+
+// PlanItem 计划中的单条操作
+type PlanItem struct {
+	Type      string `json:"type"`       // "exec", "cp", "create", "update"
+	AssetID   int64  `json:"asset_id"`
+	AssetName string `json:"asset_name"`
+	Command   string `json:"command"`
+	Detail    string `json:"detail"`
+}
+
+// ApprovalResponse is sent from the desktop app back to opsctl.
+type ApprovalResponse struct {
+	Approved      bool   `json:"approved"`
+	Reason        string `json:"reason,omitempty"`
+	PlanSessionID string `json:"plan_session_id,omitempty"` // plan 审批返回
+}
+
+// SocketPath returns the approval socket path for the given data directory.
+func SocketPath(dataDir string) string {
+	return filepath.Join(dataDir, "approval.sock")
+}
+
+// --- Server ---
+
+// ApprovalHandler processes an approval request and returns a response.
+type ApprovalHandler func(req ApprovalRequest) ApprovalResponse
+
+// Server listens on a Unix socket for approval requests from opsctl.
+type Server struct {
+	handler  ApprovalHandler
+	listener net.Listener
+	done     chan struct{}
+	wg       sync.WaitGroup
+}
+
+// NewServer creates a new approval server.
+func NewServer(handler ApprovalHandler) *Server {
+	return &Server{
+		handler: handler,
+		done:    make(chan struct{}),
+	}
+}
+
+// Start begins listening on the Unix socket at socketPath.
+// Removes stale socket file if it exists.
+func (s *Server) Start(socketPath string) error {
+	// Clean up stale socket
+	if _, err := os.Stat(socketPath); err == nil {
+		// Try to connect - if successful, another instance is running
+		conn, err := net.Dial("unix", socketPath)
+		if err == nil {
+			conn.Close()
+			return fmt.Errorf("another instance is already listening on %s", socketPath)
+		}
+		// Stale socket, remove it
+		os.Remove(socketPath)
+	}
+
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", socketPath, err)
+	}
+	s.listener = listener
+
+	s.wg.Add(1)
+	go s.acceptLoop()
+
+	return nil
+}
+
+// Stop closes the listener, removes the socket file, and waits for goroutines.
+func (s *Server) Stop() {
+	close(s.done)
+	if s.listener != nil {
+		s.listener.Close()
+	}
+	s.wg.Wait()
+}
+
+func (s *Server) acceptLoop() {
+	defer s.wg.Done()
+	for {
+		conn, err := s.listener.Accept()
+		if err != nil {
+			select {
+			case <-s.done:
+				return
+			default:
+				continue
+			}
+		}
+		s.wg.Add(1)
+		go s.handleConn(conn)
+	}
+}
+
+func (s *Server) handleConn(conn net.Conn) {
+	defer s.wg.Done()
+	defer conn.Close()
+
+	var req ApprovalRequest
+	decoder := json.NewDecoder(conn)
+	if err := decoder.Decode(&req); err != nil {
+		resp := ApprovalResponse{Approved: false, Reason: "invalid request"}
+		json.NewEncoder(conn).Encode(resp)
+		return
+	}
+
+	resp := s.handler(req)
+	json.NewEncoder(conn).Encode(resp)
+}
+
+// --- Client ---
+
+// RequestApproval connects to the Unix socket and sends an approval request.
+// Blocks until a response is received.
+func RequestApproval(socketPath string, req ApprovalRequest) (ApprovalResponse, error) {
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		return ApprovalResponse{}, fmt.Errorf("cannot connect to desktop app (is it running?): %w", err)
+	}
+	defer conn.Close()
+
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return ApprovalResponse{}, fmt.Errorf("send request: %w", err)
+	}
+
+	var resp ApprovalResponse
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return ApprovalResponse{}, fmt.Errorf("read response: %w", err)
+	}
+
+	return resp, nil
+}

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useTerminalStore } from "@/stores/terminalStore";
+import { useAIStore } from "@/stores/aiStore";
 import { useShortcutStore, matchShortcut } from "@/stores/shortcutStore";
 
 interface ShortcutHandlers {
@@ -11,10 +12,11 @@ interface ShortcutHandlers {
   activePageTab: string | null;
 }
 
-// Virtual tab id: null = asset info, "page:xxx" = page tab, otherwise terminal tab id
+// Virtual tab id: null = asset info, "page:xxx" = page tab, "ai:xxx" = AI tab, otherwise terminal tab id
 type VirtualTabId = string | null;
 
 const PAGE_PREFIX = "page:";
+const AI_PREFIX = "ai:";
 
 export function useKeyboardShortcuts({
   onToggleAIPanel,
@@ -29,7 +31,6 @@ export function useKeyboardShortcuts({
       const { shortcuts, isRecording } = useShortcutStore.getState();
       if (isRecording) return;
 
-      // Don't trigger in form fields, but allow in xterm terminal
       const target = e.target as HTMLElement;
       if (
         (target.tagName === "INPUT" ||
@@ -49,18 +50,23 @@ export function useKeyboardShortcuts({
 
       const { tabs, activeTabId, assetInfoOpen, setActiveTab, openAssetInfo, closeAssetInfo, splitPane, closePane } =
         useTerminalStore.getState();
+      const aiStore = useAIStore.getState();
 
-      // Build virtual tab list matching visual tab bar order:
-      // [asset info (if open), ...terminal tabs, ...page tabs]
+      // Build virtual tab list: [asset info, ...terminal tabs, ...AI tabs, ...page tabs]
       const allTabIds: VirtualTabId[] = [];
       if (assetInfoOpen) allTabIds.push(null);
       for (const tab of tabs) allTabIds.push(tab.id);
+      for (const aiTab of aiStore.openTabs) allTabIds.push(AI_PREFIX + aiTab.id);
       for (const pageId of openPageTabs) allTabIds.push(PAGE_PREFIX + pageId);
 
       // Determine current active virtual tab id
       let currentId: VirtualTabId | undefined;
       if (activePageTab) {
-        currentId = PAGE_PREFIX + activePageTab;
+        if (activePageTab.startsWith("ai:")) {
+          currentId = AI_PREFIX + activePageTab.slice(3);
+        } else {
+          currentId = PAGE_PREFIX + activePageTab;
+        }
       } else if (activeTabId) {
         currentId = activeTabId;
       } else if (assetInfoOpen) {
@@ -71,13 +77,14 @@ export function useKeyboardShortcuts({
 
       const switchTo = (id: VirtualTabId) => {
         if (id === null) {
-          // Asset info tab
           onPageChange("home");
           openAssetInfo();
+        } else if (id.startsWith(AI_PREFIX)) {
+          const aiTabId = id.slice(AI_PREFIX.length);
+          onPageChange("ai:" + aiTabId);
         } else if (id.startsWith(PAGE_PREFIX)) {
           onPageChange(id.slice(PAGE_PREFIX.length));
         } else {
-          // Terminal tab
           onPageChange("home");
           setActiveTab(id);
         }
@@ -95,16 +102,22 @@ export function useKeyboardShortcuts({
 
       switch (action) {
         case "tab.close": {
+          // Close AI tab
+          if (activePageTab?.startsWith("ai:")) {
+            onClosePageTab(activePageTab);
+            break;
+          }
           // Close page tab
           if (activePageTab) {
             onClosePageTab(activePageTab);
             break;
           }
-          // Close asset info tab if it's currently active
+          // Close asset info tab
           if (currentId === null && assetInfoOpen) {
             closeAssetInfo();
             break;
           }
+          // Close terminal pane
           if (!activeTabId) break;
           const tab = tabs.find((t) => t.id === activeTabId);
           if (tab) {

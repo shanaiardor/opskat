@@ -134,6 +134,47 @@ func (c *CommandPolicyChecker) Check(ctx context.Context, assetID int64, command
 	return CheckResult{Decision: Allow}
 }
 
+// CheckPolicyOnly 只检查 allow/deny 列表，不触发确认回调。
+// 返回 Allow（允许列表匹配）、Deny（拒绝列表匹配）或 NeedConfirm（未匹配任何列表）。
+func CheckPolicyOnly(ctx context.Context, assetID int64, command string) CheckResult {
+	subCmds, err := ExtractSubCommands(command)
+	if err != nil || len(subCmds) == 0 {
+		subCmds = []string{command}
+	}
+
+	asset, _ := asset_svc.Asset().Get(ctx, assetID)
+	var groups []*group_entity.Group
+	if asset != nil && asset.GroupID > 0 {
+		groups = resolveGroupChain(ctx, asset.GroupID)
+	}
+
+	allPolicies := collectPolicies(asset, groups)
+	allDenyRules := collectDenyRules(allPolicies)
+	allAllowRules := collectAllowRules(allPolicies)
+
+	// Check deny list
+	for _, cmd := range subCmds {
+		for _, rule := range allDenyRules {
+			if MatchCommandRule(rule, cmd) {
+				assetName := ""
+				if asset != nil {
+					assetName = asset.Name
+				}
+				hints := findHintRules(cmd, allAllowRules)
+				msg := formatDenyMessage(assetName, command, "命令被策略禁止执行", hints)
+				return CheckResult{Decision: Deny, Message: msg, HintRules: hints}
+			}
+		}
+	}
+
+	// Check allow list
+	if len(allAllowRules) > 0 && allSubCommandsAllowed(subCmds, allAllowRules) {
+		return CheckResult{Decision: Allow}
+	}
+
+	return CheckResult{Decision: NeedConfirm}
+}
+
 // --- context 注入 ---
 
 type policyCheckerKeyType struct{}

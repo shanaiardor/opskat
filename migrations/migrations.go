@@ -2,8 +2,10 @@ package migrations
 
 import (
 	"ops-cat/internal/model/entity/asset_entity"
+	"ops-cat/internal/model/entity/audit_entity"
 	"ops-cat/internal/model/entity/conversation_entity"
 	"ops-cat/internal/model/entity/group_entity"
+	"ops-cat/internal/model/entity/plan_entity"
 	"ops-cat/internal/model/entity/ssh_key_entity"
 
 	"github.com/go-gormigrate/gormigrate/v2"
@@ -96,6 +98,27 @@ func RunMigrations(db *gorm.DB) error {
 					return err
 				}
 				return tx.Migrator().DropColumn("groups", "command_policy")
+			},
+		},
+		{
+			ID: "202603240002",
+			Migrate: func(tx *gorm.DB) error {
+				if err := tx.AutoMigrate(&audit_entity.AuditLog{}); err != nil {
+					return err
+				}
+				if err := tx.AutoMigrate(&plan_entity.PlanSession{}); err != nil {
+					return err
+				}
+				return tx.AutoMigrate(&plan_entity.PlanItem{})
+			},
+			Rollback: func(tx *gorm.DB) error {
+				if err := tx.Migrator().DropTable("plan_items"); err != nil {
+					return err
+				}
+				if err := tx.Migrator().DropTable("plan_sessions"); err != nil {
+					return err
+				}
+				return tx.Migrator().DropTable("audit_logs")
 			},
 		},
 	})

@@ -1,0 +1,202 @@
+package ai
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"testing"
+
+	"ops-cat/internal/model/entity/audit_entity"
+	"ops-cat/internal/repository/audit_repo"
+
+	"github.com/smartystreets/goconvey/convey"
+	"github.com/stretchr/testify/assert"
+)
+
+// --- mock audit repo ---
+
+type mockAuditRepo struct {
+	mu   sync.Mutex
+	logs []*audit_entity.AuditLog
+}
+
+func (m *mockAuditRepo) Create(_ context.Context, log *audit_entity.AuditLog) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.logs = append(m.logs, log)
+	return nil
+}
+
+func (m *mockAuditRepo) List(_ context.Context, _ audit_repo.ListOptions) ([]*audit_entity.AuditLog, int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.logs, int64(len(m.logs)), nil
+}
+
+func (m *mockAuditRepo) getLastLog() *audit_entity.AuditLog {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.logs) == 0 {
+		return nil
+	}
+	return m.logs[len(m.logs)-1]
+}
+
+func TestContext_AuditSource(t *testing.T) {
+	convey.Convey("审计来源 context", t, func() {
+		convey.Convey("默认返回空字符串", func() {
+			ctx := context.Background()
+			assert.Equal(t, "", GetAuditSource(ctx))
+		})
+
+		convey.Convey("设置后可以获取", func() {
+			ctx := WithAuditSource(context.Background(), "ai")
+			assert.Equal(t, "ai", GetAuditSource(ctx))
+		})
+	})
+}
+
+func TestContext_ConversationID(t *testing.T) {
+	convey.Convey("会话 ID context", t, func() {
+		convey.Convey("默认返回 0", func() {
+			ctx := context.Background()
+			assert.Equal(t, int64(0), GetConversationID(ctx))
+		})
+
+		convey.Convey("设置后可以获取", func() {
+			ctx := WithConversationID(context.Background(), 42)
+			assert.Equal(t, int64(42), GetConversationID(ctx))
+		})
+	})
+}
+
+func TestContext_PlanSessionID(t *testing.T) {
+	convey.Convey("计划会话 ID context", t, func() {
+		convey.Convey("默认返回空字符串", func() {
+			ctx := context.Background()
+			assert.Equal(t, "", GetPlanSessionID(ctx))
+		})
+
+		convey.Convey("设置后可以获取", func() {
+			ctx := WithPlanSessionID(context.Background(), "plan-abc-123")
+			assert.Equal(t, "plan-abc-123", GetPlanSessionID(ctx))
+		})
+	})
+}
+
+func TestExtractCommandForAudit(t *testing.T) {
+	convey.Convey("从工具参数提取命令", t, func() {
+		convey.Convey("run_command 提取 command 字段", func() {
+			cmd := ExtractCommandForAudit("run_command", map[string]any{
+				"asset_id": float64(1),
+				"command":  "uptime",
+			})
+			assert.Equal(t, "uptime", cmd)
+		})
+
+		convey.Convey("upload_file 生成上传描述", func() {
+			cmd := ExtractCommandForAudit("upload_file", map[string]any{
+				"asset_id":    float64(1),
+				"local_path":  "/tmp/config.yml",
+				"remote_path": "/etc/app/config.yml",
+			})
+			assert.Equal(t, "upload /tmp/config.yml → /etc/app/config.yml", cmd)
+		})
+
+		convey.Convey("download_file 生成下载描述", func() {
+			cmd := ExtractCommandForAudit("download_file", map[string]any{
+				"asset_id":    float64(1),
+				"remote_path": "/var/log/app.log",
+				"local_path":  "./app.log",
+			})
+			assert.Equal(t, "download /var/log/app.log → ./app.log", cmd)
+		})
+
+		convey.Convey("其他工具返回空字符串", func() {
+			cmd := ExtractCommandForAudit("list_assets", map[string]any{})
+			assert.Equal(t, "", cmd)
+
+			cmd = ExtractCommandForAudit("add_asset", map[string]any{
+				"name": "web-01",
+				"host": "10.0.0.1",
+			})
+			assert.Equal(t, "", cmd)
+		})
+	})
+}
+
+func TestTruncateString(t *testing.T) {
+	convey.Convey("字符串截断", t, func() {
+		convey.Convey("短字符串不截断", func() {
+			assert.Equal(t, "hello", truncateString("hello", 10))
+		})
+
+		convey.Convey("超长字符串截断到指定长度", func() {
+			result := truncateString("abcdefghij", 5)
+			assert.Equal(t, "abcde", result)
+			assert.Len(t, result, 5)
+		})
+
+		convey.Convey("空字符串返回空", func() {
+			assert.Equal(t, "", truncateString("", 10))
+		})
+	})
+}
+
+func TestAuditingExecutor(t *testing.T) {
+	convey.Convey("AuditingExecutor", t, func() {
+		mockRepo := &mockAuditRepo{}
+		origRepo := audit_repo.Audit()
+		audit_repo.RegisterAudit(mockRepo)
+		t.Cleanup(func() {
+			if origRepo != nil {
+				audit_repo.RegisterAudit(origRepo)
+			}
+		})
+
+		inner := &mockExecutor{
+			results: map[string]string{
+				"list_assets": `[{"ID":1}]`,
+			},
+		}
+		executor := NewAuditingExecutor(inner)
+
+		convey.Convey("代理到 inner 并记录审计日志", func() {
+			ctx := WithAuditSource(context.Background(), "ai")
+			ctx = WithConversationID(ctx, 99)
+
+			result, err := executor.Execute(ctx, "list_assets", `{"asset_type":"ssh"}`)
+			assert.NoError(t, err)
+			assert.Equal(t, `[{"ID":1}]`, result)
+
+			// inner 应被调用
+			assert.Len(t, inner.calls, 1)
+			assert.Equal(t, "list_assets", inner.calls[0].Name)
+		})
+
+		convey.Convey("inner 报错时仍记录审计日志", func() {
+			failingInner := &failingExecutor{err: errors.New("connection refused")}
+			failExec := NewAuditingExecutor(failingInner)
+
+			ctx := WithAuditSource(context.Background(), "ai")
+			result, err := failExec.Execute(ctx, "run_command", `{"asset_id":1,"command":"uptime"}`)
+
+			assert.Error(t, err)
+			assert.Equal(t, "", result)
+		})
+
+		convey.Convey("Close 代理到 inner", func() {
+			err := executor.Close()
+			assert.NoError(t, err)
+		})
+	})
+}
+
+// failingExecutor 模拟执行失败的 executor
+type failingExecutor struct {
+	err error
+}
+
+func (f *failingExecutor) Execute(_ context.Context, _ string, _ string) (string, error) {
+	return "", f.err
+}

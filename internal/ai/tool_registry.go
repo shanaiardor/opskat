@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"ops-cat/internal/model/entity/asset_entity"
+	"ops-cat/internal/model/entity/audit_entity"
 	"ops-cat/internal/repository/group_repo"
 	"ops-cat/internal/service/asset_svc"
 
@@ -170,7 +171,9 @@ func RegisterToMCP(s *server.MCPServer, defs []ToolDef) {
 	for _, def := range defs {
 		mcpTool := toMCPTool(def)
 		handler := def.Handler
+		toolName := def.Name
 		s.AddTool(mcpTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			ctx = WithAuditSource(ctx, "mcp")
 			var args map[string]any
 			if m, ok := req.Params.Arguments.(map[string]any); ok {
 				args = m
@@ -178,6 +181,30 @@ func RegisterToMCP(s *server.MCPServer, defs []ToolDef) {
 				args = make(map[string]any)
 			}
 			result, err := handler(ctx, args)
+
+			// 审计日志
+			argsJSON, _ := json.Marshal(args)
+			assetID := argInt64(args, "asset_id")
+			if assetID == 0 {
+				assetID = argInt64(args, "id")
+			}
+			success := 1
+			errMsg := ""
+			if err != nil {
+				success = 0
+				errMsg = err.Error()
+			}
+			go WriteAuditLog(ctx, &audit_entity.AuditLog{
+				Source:   "mcp",
+				ToolName: toolName,
+				AssetID:  assetID,
+				Command:  ExtractCommandForAudit(toolName, args),
+				Request:  truncateString(string(argsJSON), 4096),
+				Result:   truncateString(result, 4096),
+				Error:    errMsg,
+				Success:  success,
+			})
+
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}

@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { X, TerminalSquare, Cat, Settings, KeyRound } from "lucide-react";
+import { X, TerminalSquare, Cat, Settings, KeyRound, MessageSquare } from "lucide-react";
 import { useFullscreen } from "@/hooks/useFullscreen";
 import { AssetDetail } from "@/components/asset/AssetDetail";
 import { GroupDetail } from "@/components/asset/GroupDetail";
@@ -7,9 +7,13 @@ import { SplitPane } from "@/components/terminal/SplitPane";
 import { TerminalToolbar } from "@/components/terminal/TerminalToolbar";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { SSHKeyManager } from "@/components/settings/SSHKeyManager";
+import { AIChatContent } from "@/components/ai/AIChatContent";
 import { useTerminalStore } from "@/stores/terminalStore";
+import { useAIStore } from "@/stores/aiStore";
 import { cn } from "@/lib/utils";
 import { asset_entity, group_entity } from "../../../wailsjs/go/models";
+
+const AI_TAB_PREFIX = "ai:";
 
 const pageTabMeta: Record<string, { icon: typeof Settings; labelKey: string }> = {
   settings: { icon: Settings, labelKey: "nav.settings" },
@@ -17,7 +21,7 @@ const pageTabMeta: Record<string, { icon: typeof Settings; labelKey: string }> =
 };
 
 interface MainPanelProps {
-  activePage?: string; // kept for compatibility
+  activePage?: string;
   selectedAsset: asset_entity.Asset | null;
   selectedGroup: group_entity.Group | null;
   onEditAsset: (asset: asset_entity.Asset) => void;
@@ -46,14 +50,18 @@ export function MainPanel({
   const { t } = useTranslation();
   const isFullscreen = useFullscreen();
   const { tabs, activeTabId, assetInfoOpen, setActiveTab, removeTab, closeAssetInfo, openAssetInfo, connectingAssetIds } = useTerminalStore();
+  const aiOpenTabs = useAIStore((s) => s.openTabs);
 
   const noTabStyle = { "--wails-draggable": "no-drag" } as React.CSSProperties;
 
   const isHome = !activePageTab;
+  const isAITab = activePageTab?.startsWith(AI_TAB_PREFIX) || false;
+  const activeAITabId = isAITab ? activePageTab!.slice(AI_TAB_PREFIX.length) : null;
+
   const showTerminal = isHome && activeTabId && tabs.some((tab) => tab.id === activeTabId);
   const showAssetInfo = isHome && !showTerminal && assetInfoOpen && selectedAsset;
   const showGroupInfo = isHome && !showTerminal && !showAssetInfo && assetInfoOpen && selectedGroup;
-  const hasTabs = assetInfoOpen || tabs.length > 0 || openPageTabs.length > 0;
+  const hasTabs = assetInfoOpen || tabs.length > 0 || aiOpenTabs.length > 0 || openPageTabs.length > 0;
 
   return (
     <div className="flex flex-1 flex-col min-w-0">
@@ -71,6 +79,7 @@ export function MainPanel({
           className={`flex items-center border-b overflow-x-auto bg-background ${isFullscreen ? "pt-2" : "pt-10"}`}
           style={{ "--wails-draggable": "drag" } as React.CSSProperties}
         >
+          {/* Asset info tabs */}
           {assetInfoOpen && selectedGroup && !selectedAsset && (
             <div
               className={cn(
@@ -123,6 +132,8 @@ export function MainPanel({
               )}
             </div>
           )}
+
+          {/* Terminal tabs */}
           {tabs.map((tab) => {
             const paneValues = Object.values(tab.panes);
             const allDisconnected = paneValues.length > 0 && paneValues.every(
@@ -161,6 +172,42 @@ export function MainPanel({
               </div>
             );
           })}
+
+          {/* AI conversation tabs */}
+          {aiOpenTabs.map((aiTab) => {
+            const pageTabId = AI_TAB_PREFIX + aiTab.id;
+            const isActive = activePageTab === pageTabId;
+            return (
+              <div
+                key={aiTab.id}
+                className={cn(
+                  "relative flex items-center gap-1.5 px-3 py-2 text-sm shrink-0 cursor-pointer transition-colors duration-150",
+                  isActive
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                )}
+                style={noTabStyle}
+                onClick={() => onActivatePageTab(pageTabId)}
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+                <span className="max-w-24 truncate">{aiTab.title}</span>
+                <button
+                  className="ml-1.5 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors duration-150"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClosePageTab(pageTabId);
+                  }}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+                {isActive && (
+                  <span className="absolute bottom-0 left-1 right-1 h-0.5 rounded-full bg-primary" />
+                )}
+              </div>
+            );
+          })}
+
+          {/* Page tabs (settings, sshkeys) */}
           {openPageTabs.map((pageId) => {
             const meta = pageTabMeta[pageId];
             if (!meta) return null;
@@ -197,9 +244,9 @@ export function MainPanel({
         </div>
       )}
 
-      {/* Content area — all pages overlap here, terminal always mounted to avoid xterm flash */}
+      {/* Content area */}
       <div className="flex-1 relative min-h-0 overflow-hidden">
-        {/* Home: terminal content — use visibility instead of display to preserve xterm layout */}
+        {/* Home: terminal content — use visibility to preserve xterm layout */}
         <div
           className="absolute inset-0"
           style={{
@@ -268,6 +315,23 @@ export function MainPanel({
             </div>
           )}
         </div>
+
+        {/* AI conversation tabs content */}
+        {aiOpenTabs.map((aiTab) => {
+          const isActive = activeAITabId === aiTab.id;
+          return (
+            <div
+              key={aiTab.id}
+              className="absolute inset-0 bg-background"
+              style={{
+                visibility: isActive ? "visible" : "hidden",
+                pointerEvents: isActive ? "auto" : "none",
+              }}
+            >
+              <AIChatContent tabId={aiTab.id} />
+            </div>
+          );
+        })}
 
         {/* Page tabs content */}
         {activePageTab === "settings" && (

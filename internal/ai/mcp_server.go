@@ -57,7 +57,7 @@ func NewMCPServer(checker *CommandPolicyChecker) *MCPServer {
 
 // Start 启动 MCP Server，监听 127.0.0.1 指定端口，生成 CLI 配置文件
 // configDir 为应用数据目录，MCP 配置文件写入此目录
-// port 为 0 时随机分配端口，非 0 时使用指定端口（失败则直接报错）
+// port 从应用配置读取，首次启动时自动生成并持久化
 func (s *MCPServer) Start(ctx context.Context, configDir string, port int) error {
 	s.configDir = configDir
 

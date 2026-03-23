@@ -1,128 +1,179 @@
 import * as React from "react"
-import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
-import { ContextMenu as ContextMenuPrimitive } from "radix-ui"
+import { createPortal } from "react-dom"
 
 import { cn } from "@/lib/utils"
 
+// --- Custom ContextMenu with smart positioning ---
+// Replaces Radix ContextMenu which hardcodes side/sideOffset/align
+// and causes menu items to appear under the cursor on flip.
+
+interface ContextMenuContextValue {
+  open: boolean
+  position: { x: number; y: number }
+  onOpenChange: (open: boolean) => void
+  setPosition: (pos: { x: number; y: number }) => void
+}
+
+const ContextMenuCtx = React.createContext<ContextMenuContextValue | null>(null)
+
+function useCtx() {
+  const ctx = React.useContext(ContextMenuCtx)
+  if (!ctx) throw new Error("ContextMenu components must be used within ContextMenu")
+  return ctx
+}
+
 function ContextMenu({
-  ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
-  return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />
+  children,
+  onOpenChange,
+}: {
+  children: React.ReactNode
+  onOpenChange?: (open: boolean) => void
+}) {
+  const [open, setOpen] = React.useState(false)
+  const [position, setPosition] = React.useState({ x: 0, y: 0 })
+
+  const handleOpenChange = React.useCallback(
+    (value: boolean) => {
+      setOpen(value)
+      onOpenChange?.(value)
+    },
+    [onOpenChange]
+  )
+
+  const ctx = React.useMemo(
+    () => ({ open, position, onOpenChange: handleOpenChange, setPosition }),
+    [open, position, handleOpenChange]
+  )
+
+  return (
+    <ContextMenuCtx.Provider value={ctx}>{children}</ContextMenuCtx.Provider>
+  )
 }
 
 function ContextMenuTrigger({
-  ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.Trigger>) {
-  return (
-    <ContextMenuPrimitive.Trigger data-slot="context-menu-trigger" {...props} />
-  )
-}
-
-function ContextMenuGroup({
-  ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.Group>) {
-  return (
-    <ContextMenuPrimitive.Group data-slot="context-menu-group" {...props} />
-  )
-}
-
-function ContextMenuPortal({
-  ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.Portal>) {
-  return (
-    <ContextMenuPrimitive.Portal data-slot="context-menu-portal" {...props} />
-  )
-}
-
-function ContextMenuSub({
-  ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.Sub>) {
-  return <ContextMenuPrimitive.Sub data-slot="context-menu-sub" {...props} />
-}
-
-function ContextMenuRadioGroup({
-  ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.RadioGroup>) {
-  return (
-    <ContextMenuPrimitive.RadioGroup
-      data-slot="context-menu-radio-group"
-      {...props}
-    />
-  )
-}
-
-function ContextMenuSubTrigger({
-  className,
-  inset,
   children,
   ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.SubTrigger> & {
-  inset?: boolean
-}) {
+}: React.HTMLAttributes<HTMLSpanElement> & { children: React.ReactNode }) {
+  const ctx = useCtx()
+
   return (
-    <ContextMenuPrimitive.SubTrigger
-      data-slot="context-menu-sub-trigger"
-      data-inset={inset}
-      className={cn(
-        "flex cursor-default items-center rounded-sm px-2 py-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-[inset]:pl-8 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
-        className
-      )}
+    <span
+      data-slot="context-menu-trigger"
       {...props}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        ctx.setPosition({ x: e.clientX, y: e.clientY })
+        ctx.onOpenChange(true)
+      }}
     >
       {children}
-      <ChevronRightIcon className="ml-auto" />
-    </ContextMenuPrimitive.SubTrigger>
-  )
-}
-
-function ContextMenuSubContent({
-  className,
-  ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.SubContent>) {
-  return (
-    <ContextMenuPrimitive.SubContent
-      data-slot="context-menu-sub-content"
-      className={cn(
-        "z-50 min-w-[8rem] origin-(--radix-context-menu-content-transform-origin) overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
-        className
-      )}
-      {...props}
-    />
+    </span>
   )
 }
 
 function ContextMenuContent({
   className,
+  style: styleProp,
+  children,
   ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.Content>) {
-  const contentRef = React.useRef<HTMLDivElement>(null)
+}: React.HTMLAttributes<HTMLDivElement>) {
+  const ctx = useCtx()
+  const ref = React.useRef<HTMLDivElement>(null)
+  const [pos, setPos] = React.useState({ top: 0, left: 0 })
+  const [visible, setVisible] = React.useState(false)
+  const [interactive, setInteractive] = React.useState(false)
 
-  // Block pointer events briefly after mount to prevent right-click release
-  // from accidentally triggering menu items. CSS animation approach doesn't
-  // work here because Tailwind's animate-in overrides it.
-  React.useEffect(() => {
-    const el = contentRef.current
-    if (el) {
-      el.style.pointerEvents = "none"
-      const timer = setTimeout(() => {
-        if (el) el.style.pointerEvents = ""
-      }, 300)
-      return () => clearTimeout(timer)
+  // Calculate position: default bottom-right, flip if not enough space
+  React.useLayoutEffect(() => {
+    if (!ctx.open || !ref.current) return
+    const rect = ref.current.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const GAP = 2
+
+    let left = ctx.position.x + GAP
+    let top = ctx.position.y + GAP
+
+    // Flip horizontal if menu overflows right edge
+    if (left + rect.width > vw) {
+      left = ctx.position.x - rect.width - GAP
     }
-  }, [])
+    // Flip vertical if menu overflows bottom edge (往上弹)
+    if (top + rect.height > vh) {
+      top = ctx.position.y - rect.height - GAP
+    }
 
-  return (
-    <ContextMenuPrimitive.Portal>
-      <ContextMenuPrimitive.Content
-        ref={contentRef}
-        data-slot="context-menu-content"
-        className={cn(
-          "z-50 max-h-(--radix-context-menu-content-available-height) min-w-[8rem] origin-(--radix-context-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
-          className
-        )}
-        {...props}
-      />
-    </ContextMenuPrimitive.Portal>
+    // Clamp to viewport bounds
+    left = Math.max(4, Math.min(left, vw - rect.width - 4))
+    top = Math.max(4, Math.min(top, vh - rect.height - 4))
+
+    setPos({ top, left })
+    setVisible(true)
+  }, [ctx.open, ctx.position])
+
+  // Enable pointer events after delay to prevent right-click release from
+  // accidentally triggering menu items
+  React.useEffect(() => {
+    if (!ctx.open) {
+      setVisible(false)
+      setInteractive(false)
+      return
+    }
+    const timer = setTimeout(() => setInteractive(true), 150)
+    return () => clearTimeout(timer)
+  }, [ctx.open])
+
+  // Close on outside pointer, escape key
+  React.useEffect(() => {
+    if (!ctx.open) return
+
+    const close = () => ctx.onOpenChange(false)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close()
+    }
+    const onPointerDown = (e: PointerEvent) => {
+      if (ref.current?.contains(e.target as Node)) return
+      close()
+    }
+
+    // Delay pointer listener to avoid right-click release closing immediately
+    const timer = setTimeout(() => {
+      document.addEventListener("pointerdown", onPointerDown, true)
+    }, 50)
+    document.addEventListener("keydown", onKey)
+
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener("pointerdown", onPointerDown, true)
+      document.removeEventListener("keydown", onKey)
+    }
+  }, [ctx.open, ctx.onOpenChange])
+
+  if (!ctx.open) return null
+
+  return createPortal(
+    <div
+      ref={ref}
+      data-slot="context-menu-content"
+      role="menu"
+      className={cn(
+        "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md",
+        visible && "animate-in fade-in-0 zoom-in-95",
+        className
+      )}
+      style={{
+        ...styleProp,
+        position: "fixed",
+        top: pos.top,
+        left: pos.left,
+        visibility: visible ? "visible" : "hidden",
+        pointerEvents: interactive ? "auto" : "none",
+      }}
+      {...props}
+    >
+      {children}
+    </div>,
+    document.body
   )
 }
 
@@ -130,102 +181,48 @@ function ContextMenuItem({
   className,
   inset,
   variant = "default",
+  disabled,
+  onClick,
+  children,
   ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.Item> & {
+}: React.HTMLAttributes<HTMLDivElement> & {
   inset?: boolean
   variant?: "default" | "destructive"
+  disabled?: boolean
 }) {
+  const ctx = useCtx()
+
   return (
-    <ContextMenuPrimitive.Item
+    <div
       data-slot="context-menu-item"
       data-inset={inset}
       data-variant={variant}
+      data-disabled={disabled || undefined}
+      role="menuitem"
       className={cn(
-        "relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground data-[variant=destructive]:*:[svg]:text-destructive!",
+        "relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 data-[variant=destructive]:text-destructive data-[variant=destructive]:hover:bg-destructive/10 data-[variant=destructive]:hover:text-destructive dark:data-[variant=destructive]:hover:bg-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground data-[variant=destructive]:*:[svg]:text-destructive!",
         className
       )}
-      {...props}
-    />
-  )
-}
-
-function ContextMenuCheckboxItem({
-  className,
-  children,
-  checked,
-  ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.CheckboxItem>) {
-  return (
-    <ContextMenuPrimitive.CheckboxItem
-      data-slot="context-menu-checkbox-item"
-      className={cn(
-        "relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        className
-      )}
-      checked={checked}
+      onClick={(e) => {
+        if (disabled) return
+        onClick?.(e)
+        ctx.onOpenChange(false)
+      }}
       {...props}
     >
-      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
-        <ContextMenuPrimitive.ItemIndicator>
-          <CheckIcon className="size-4" />
-        </ContextMenuPrimitive.ItemIndicator>
-      </span>
       {children}
-    </ContextMenuPrimitive.CheckboxItem>
-  )
-}
-
-function ContextMenuRadioItem({
-  className,
-  children,
-  ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.RadioItem>) {
-  return (
-    <ContextMenuPrimitive.RadioItem
-      data-slot="context-menu-radio-item"
-      className={cn(
-        "relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        className
-      )}
-      {...props}
-    >
-      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
-        <ContextMenuPrimitive.ItemIndicator>
-          <CircleIcon className="size-2 fill-current" />
-        </ContextMenuPrimitive.ItemIndicator>
-      </span>
-      {children}
-    </ContextMenuPrimitive.RadioItem>
-  )
-}
-
-function ContextMenuLabel({
-  className,
-  inset,
-  ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.Label> & {
-  inset?: boolean
-}) {
-  return (
-    <ContextMenuPrimitive.Label
-      data-slot="context-menu-label"
-      data-inset={inset}
-      className={cn(
-        "px-2 py-1.5 text-sm font-medium text-foreground data-[inset]:pl-8",
-        className
-      )}
-      {...props}
-    />
+    </div>
   )
 }
 
 function ContextMenuSeparator({
   className,
   ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.Separator>) {
+}: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <ContextMenuPrimitive.Separator
+    <div
       data-slot="context-menu-separator"
+      role="separator"
       className={cn("-mx-1 my-1 h-px bg-border", className)}
       {...props}
     />
@@ -246,6 +243,35 @@ function ContextMenuShortcut({
       {...props}
     />
   )
+}
+
+// Stub exports for unused components (preserve API compatibility)
+function ContextMenuGroup(props: React.HTMLAttributes<HTMLDivElement>) {
+  return <div data-slot="context-menu-group" role="group" {...props} />
+}
+function ContextMenuPortal({ children }: { children: React.ReactNode }) {
+  return <>{children}</>
+}
+function ContextMenuSub({ children }: { children: React.ReactNode }) {
+  return <>{children}</>
+}
+function ContextMenuRadioGroup(props: React.HTMLAttributes<HTMLDivElement>) {
+  return <div data-slot="context-menu-radio-group" role="radiogroup" {...props} />
+}
+function ContextMenuSubTrigger(_props: Record<string, unknown>) {
+  return null
+}
+function ContextMenuSubContent(_props: Record<string, unknown>) {
+  return null
+}
+function ContextMenuCheckboxItem(_props: Record<string, unknown>) {
+  return null
+}
+function ContextMenuRadioItem(_props: Record<string, unknown>) {
+  return null
+}
+function ContextMenuLabel(_props: Record<string, unknown>) {
+  return null
 }
 
 export {

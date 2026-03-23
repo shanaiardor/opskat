@@ -45,6 +45,15 @@ import {
   ImportTabbySelected,
   PreviewSSHConfig,
   ImportSSHConfigSelected,
+  GetMCPPort,
+  SetMCPPort,
+  DetectOpsctl,
+  GetOpsctlInstallDir,
+  InstallOpsctl,
+  DetectClaudeSkill,
+  InstallClaudeSkill,
+  GetSkillPreview,
+  GetDataDir,
 } from "../../../wailsjs/go/main/App";
 import { backup_svc } from "../../../wailsjs/go/models";
 import { import_svc } from "../../../wailsjs/go/models";
@@ -52,7 +61,7 @@ import { ImportDialog } from "@/components/settings/ImportDialog";
 import {
   Bot, Palette, Check, HardDrive, Download, Upload, Import,
   Github, LogOut, Loader2, Copy, ExternalLink, Eye, EyeOff, Shuffle, Keyboard,
-  Plus, Pencil, Trash2, MonitorDot,
+  Plus, Pencil, Trash2, MonitorDot, Terminal, RefreshCw, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { ShortcutSettings } from "@/components/settings/ShortcutSettings";
 import { TerminalThemeEditor } from "@/components/settings/TerminalThemeEditor";
@@ -101,6 +110,210 @@ function PasswordInput({
   );
 }
 
+function IntegrationSection() {
+  const { t } = useTranslation();
+  const [opsctlInfo, setOpsctlInfo] = useState<{installed: boolean; path: string; version: string; embedded: boolean}>({installed: false, path: "", version: "", embedded: false});
+  const [skillInfo, setSkillInfo] = useState<{installed: boolean; path: string}>({installed: false, path: ""});
+  const [installDir, setInstallDir] = useState("");
+  const [installing, setInstalling] = useState(false);
+  const [skillInstalling, setSkillInstalling] = useState(false);
+  const [skillPreview, setSkillPreview] = useState("");
+  const [showPreview, setShowPreview] = useState(false);
+  const [dataDir, setDataDir] = useState("");
+
+  const detect = useCallback(async () => {
+    try {
+      const [info, skill, dir, dd] = await Promise.all([
+        DetectOpsctl(),
+        DetectClaudeSkill(),
+        GetOpsctlInstallDir(),
+        GetDataDir(),
+      ]);
+      setOpsctlInfo(info);
+      setSkillInfo(skill);
+      setInstallDir(dir);
+      setDataDir(dd);
+    } catch {}
+  }, []);
+
+  useEffect(() => { detect(); }, [detect]);
+
+  const handleInstallCLI = async () => {
+    setInstalling(true);
+    try {
+      const path = await InstallOpsctl("");
+      toast.success(t("integration.installSuccess"));
+      await detect();
+      // Show PATH hint
+      const dir = path.substring(0, path.lastIndexOf("/"));
+      toast.info(`${t("integration.pathHint")}: ${dir}`);
+    } catch (e: any) {
+      toast.error(`${t("integration.installFailed")}: ${e?.message || String(e)}`);
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const handleInstallSkill = async () => {
+    setSkillInstalling(true);
+    try {
+      await InstallClaudeSkill();
+      toast.success(t("integration.skillInstallSuccess"));
+      await detect();
+    } catch (e: any) {
+      toast.error(e?.message || String(e));
+    } finally {
+      setSkillInstalling(false);
+    }
+  };
+
+  const handlePreview = async () => {
+    if (showPreview) {
+      setShowPreview(false);
+      return;
+    }
+    try {
+      const content = await GetSkillPreview();
+      setSkillPreview(content);
+      setShowPreview(true);
+    } catch {}
+  };
+
+  return (
+    <>
+      {/* opsctl CLI */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base">{t("integration.cli")}</CardTitle>
+              <CardDescription>{t("integration.cliDesc")}</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              {opsctlInfo.installed ? (
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
+                  <Check className="h-3.5 w-3.5" />
+                  {t("integration.installed")}
+                </span>
+              ) : (
+                <span className="text-xs text-muted-foreground">{t("integration.notInstalled")}</span>
+              )}
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={detect}>
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {opsctlInfo.installed && (
+            <div className="grid gap-1.5 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">{t("integration.version")}</span>
+                <span className="font-mono text-xs">{opsctlInfo.version || "unknown"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">{t("integration.path")}</span>
+                <span className="font-mono text-xs truncate max-w-[300px]">{opsctlInfo.path}</span>
+              </div>
+            </div>
+          )}
+
+          {!opsctlInfo.installed && (
+            <div className="space-y-3">
+              {opsctlInfo.embedded ? (
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">{t("integration.installDir")}</span>
+                    <span className="font-mono text-xs">{installDir}</span>
+                  </div>
+                  <Button onClick={handleInstallCLI} disabled={installing} size="sm">
+                    {installing ? (
+                      <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />{t("integration.installing")}</>
+                    ) : (
+                      t("integration.install")
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">{t("integration.noEmbedded")}</p>
+              )}
+              <Separator />
+              <div className="space-y-1">
+                <p className="text-sm font-medium">{t("integration.manualInstall")}</p>
+                <p className="text-xs text-muted-foreground">{t("integration.manualInstallHint")}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <code className="text-xs bg-muted px-2 py-1 rounded font-mono">go install ops-cat/cmd/opsctl@latest</code>
+                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
+                    navigator.clipboard.writeText("go install ops-cat/cmd/opsctl@latest");
+                    toast.success(t("sshKey.copied"));
+                  }}>
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <Separator />
+          <div className="space-y-1">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">{t("integration.dataDir")}</span>
+              <span className="font-mono text-xs truncate max-w-[300px]">{dataDir}</span>
+            </div>
+            <p className="text-xs text-muted-foreground">{t("integration.dataDirDesc")}</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Claude Code Skill */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base">{t("integration.skill")}</CardTitle>
+              <CardDescription>{t("integration.skillDesc")}</CardDescription>
+            </div>
+            {skillInfo.installed && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
+                <Check className="h-3.5 w-3.5" />
+                {t("integration.skillInstalled")}
+              </span>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {skillInfo.installed && (
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">{t("integration.skillPath")}</span>
+              <span className="font-mono text-xs truncate max-w-[300px]">{skillInfo.path}</span>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <Button onClick={handleInstallSkill} disabled={skillInstalling} size="sm">
+              {skillInstalling ? (
+                <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />{t("integration.skillInstalling")}</>
+              ) : skillInfo.installed ? (
+                t("integration.skillUpdate")
+              ) : (
+                t("integration.skillInstall")
+              )}
+            </Button>
+            <Button variant="outline" size="sm" onClick={handlePreview}>
+              {showPreview ? <ChevronUp className="h-3.5 w-3.5 mr-1" /> : <ChevronDown className="h-3.5 w-3.5 mr-1" />}
+              {t("integration.skillPreview")}
+            </Button>
+          </div>
+
+          {showPreview && (
+            <pre className="text-xs bg-muted p-3 rounded-md overflow-auto max-h-[300px] whitespace-pre-wrap">{skillPreview}</pre>
+          )}
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { theme, setTheme } = useTheme();
@@ -120,10 +333,15 @@ export function SettingsPage() {
   const [model, setModel] = useState(
     localStorage.getItem("ai_model") || "gpt-4o"
   );
-  const [mcpPort, setMcpPort] = useState(
-    localStorage.getItem("mcp_port") || ""
-  );
+  const [mcpPort, setMcpPort] = useState("");
   const [saved, setSaved] = useState(false);
+
+  // 从后端加载 MCP 端口
+  useEffect(() => {
+    GetMCPPort().then((port) => {
+      if (port > 0) setMcpPort(String(port));
+    });
+  }, []);
 
   // 文件备份
   const [fileExporting, setFileExporting] = useState(false);
@@ -213,9 +431,13 @@ export function SettingsPage() {
     localStorage.setItem("ai_api_base", apiBase);
     localStorage.setItem("ai_api_key", apiKey);
     localStorage.setItem("ai_model", model);
-    localStorage.setItem("mcp_port", mcpPort);
     try {
-      await configure(providerType, apiBase, apiKey, model, Number(mcpPort) || 0);
+      // 保存 MCP 端口到后端配置
+      const port = Number(mcpPort) || 0;
+      if (port > 0) {
+        await SetMCPPort(port);
+      }
+      await configure(providerType, apiBase, apiKey, model);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -444,6 +666,10 @@ export function SettingsPage() {
             <TabsTrigger value="appearance" className="gap-1">
               <Palette className="h-3.5 w-3.5" />
               {t("nav.appearance")}
+            </TabsTrigger>
+            <TabsTrigger value="integration" className="gap-1">
+              <Terminal className="h-3.5 w-3.5" />
+              {t("integration.title")}
             </TabsTrigger>
           </TabsList>
 
@@ -828,6 +1054,11 @@ export function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Integration */}
+          <TabsContent value="integration" className="space-y-4">
+            <IntegrationSection />
           </TabsContent>
         </Tabs>
       </div>

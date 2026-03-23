@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -6,16 +6,21 @@ import { Toaster } from "@/components/ui/sonner";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { AssetTree } from "@/components/layout/AssetTree";
 import { MainPanel } from "@/components/layout/MainPanel";
-import { AIPanel } from "@/components/layout/AIPanel";
+import { ConversationListPanel } from "@/components/ai/ConversationListPanel";
 import { WindowControls } from "@/components/layout/WindowControls";
 import { AssetForm } from "@/components/asset/AssetForm";
 import { GroupDialog } from "@/components/asset/GroupDialog";
 import { PermissionDialog } from "@/components/ai/PermissionDialog";
+import { OpsctlApprovalDialog } from "@/components/approval/OpsctlApprovalDialog";
+import { PlanApprovalDialog } from "@/components/approval/PlanApprovalDialog";
 
 import { useAssetStore } from "@/stores/assetStore";
 import { useTerminalStore } from "@/stores/terminalStore";
+import { useAIStore } from "@/stores/aiStore";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { asset_entity, group_entity } from "../wailsjs/go/models";
+
+const AI_TAB_PREFIX = "ai:";
 
 function App() {
   const [openPageTabs, setOpenPageTabs] = useState<string[]>([]);
@@ -26,6 +31,10 @@ function App() {
   const handlePageChange = useCallback((page: string) => {
     if (page === "home") {
       setActivePageTab(null);
+    } else if (page.startsWith(AI_TAB_PREFIX)) {
+      const aiTabId = page.slice(AI_TAB_PREFIX.length);
+      useAIStore.getState().setActiveAITab(aiTabId);
+      setActivePageTab(page);
     } else {
       if (!openPageTabs.includes(page)) {
         setOpenPageTabs((prev) => [...prev, page]);
@@ -35,12 +44,22 @@ function App() {
   }, [openPageTabs]);
 
   const closePageTab = useCallback((pageId: string) => {
-    setOpenPageTabs((prev) => prev.filter((id) => id !== pageId));
-    setActivePageTab((prev) => (prev === pageId ? null : prev));
+    if (pageId.startsWith(AI_TAB_PREFIX)) {
+      const aiTabId = pageId.slice(AI_TAB_PREFIX.length);
+      useAIStore.getState().closeConversationTab(aiTabId);
+      setActivePageTab((prev) => (prev === pageId ? null : prev));
+    } else {
+      setOpenPageTabs((prev) => prev.filter((id) => id !== pageId));
+      setActivePageTab((prev) => (prev === pageId ? null : prev));
+    }
   }, []);
 
   const handleTerminalTabClick = useCallback(() => {
     setActivePageTab(null);
+  }, []);
+
+  const handleOpenConversation = useCallback((tabId: string) => {
+    setActivePageTab(AI_TAB_PREFIX + tabId);
   }, []);
 
   const [sidebarHidden, setSidebarHidden] = useState(
@@ -112,6 +131,14 @@ function App() {
     activePageTab,
   });
 
+  // 启动时自动激活 AI store 中已打开的第一个 tab
+  const aiActiveTabId = useAIStore((s) => s.activeAITabId);
+  useEffect(() => {
+    if (aiActiveTabId && !activePageTab) {
+      setActivePageTab(AI_TAB_PREFIX + aiActiveTabId);
+    }
+  }, [aiActiveTabId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 资产表单
   const [assetFormOpen, setAssetFormOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<asset_entity.Asset | null>(null);
@@ -165,6 +192,7 @@ const { assets, groups, selectedAssetId, selectedGroupId, selectAsset, selectGro
     const assetPath = getAssetPath(asset);
     try {
       await connect(asset.ID, assetPath, "", 80, 24);
+      setActivePageTab(null);
     } catch (e) {
       toast.error(`${assetPath}: ${String(e)}`);
     }
@@ -237,9 +265,10 @@ const { assets, groups, selectedAssetId, selectedGroupId, selectAsset, selectGro
             onClosePageTab={closePageTab}
             onTerminalTabClick={handleTerminalTabClick}
           />
-          <AIPanel
+          <ConversationListPanel
             collapsed={aiPanelCollapsed}
             onToggle={() => setAiPanelCollapsed(!aiPanelCollapsed)}
+            onOpenConversation={handleOpenConversation}
           />
         </div>
 
@@ -255,6 +284,8 @@ const { assets, groups, selectedAssetId, selectedGroupId, selectAsset, selectGro
           editGroup={editingGroup}
         />
 <PermissionDialog />
+<OpsctlApprovalDialog />
+<PlanApprovalDialog />
 <Toaster richColors />
       </TooltipProvider>
     </ThemeProvider>

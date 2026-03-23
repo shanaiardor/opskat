@@ -46,8 +46,16 @@ export function DeleteSSHKey(arg1) {
   return window['go']['main']['App']['DeleteSSHKey'](arg1);
 }
 
+export function DetectClaudeSkill() {
+  return window['go']['main']['App']['DetectClaudeSkill']();
+}
+
 export function DetectLocalCLIs() {
   return window['go']['main']['App']['DetectLocalCLIs']();
+}
+
+export function DetectOpsctl() {
+  return window['go']['main']['App']['DetectOpsctl']();
 }
 
 export function DisconnectSSH(arg1) {
@@ -82,6 +90,10 @@ export function GetCurrentConversationID() {
   return window['go']['main']['App']['GetCurrentConversationID']();
 }
 
+export function GetDataDir() {
+  return window['go']['main']['App']['GetDataDir']();
+}
+
 export function GetGitHubUser(arg1) {
   return window['go']['main']['App']['GetGitHubUser'](arg1);
 }
@@ -94,12 +106,24 @@ export function GetLanguage() {
   return window['go']['main']['App']['GetLanguage']();
 }
 
+export function GetMCPPort() {
+  return window['go']['main']['App']['GetMCPPort']();
+}
+
+export function GetOpsctlInstallDir() {
+  return window['go']['main']['App']['GetOpsctlInstallDir']();
+}
+
 export function GetSSHKeyPublicKey(arg1) {
   return window['go']['main']['App']['GetSSHKeyPublicKey'](arg1);
 }
 
 export function GetSSHKeyUsage(arg1) {
   return window['go']['main']['App']['GetSSHKeyUsage'](arg1);
+}
+
+export function GetSkillPreview() {
+  return window['go']['main']['App']['GetSkillPreview']();
 }
 
 export function ImportFromGist(arg1, arg2, arg3) {
@@ -120,6 +144,14 @@ export function ImportSSHKeyPEM(arg1, arg2, arg3) {
 
 export function ImportTabbySelected(arg1) {
   return window['go']['main']['App']['ImportTabbySelected'](arg1);
+}
+
+export function InstallClaudeSkill() {
+  return window['go']['main']['App']['InstallClaudeSkill']();
+}
+
+export function InstallOpsctl(arg1) {
+  return window['go']['main']['App']['InstallOpsctl'](arg1);
 }
 
 export function ListAssets(arg1, arg2) {
@@ -182,8 +214,16 @@ export function RespondCommandConfirm(arg1, arg2) {
   return window['go']['main']['App']['RespondCommandConfirm'](arg1, arg2);
 }
 
+export function RespondOpsctlApproval(arg1, arg2) {
+  return window['go']['main']['App']['RespondOpsctlApproval'](arg1, arg2);
+}
+
 export function RespondPermission(arg1, arg2) {
   return window['go']['main']['App']['RespondPermission'](arg1, arg2);
+}
+
+export function RespondPlanApproval(arg1, arg2) {
+  return window['go']['main']['App']['RespondPlanApproval'](arg1, arg2);
 }
 
 export function SFTPCancelTransfer(arg1) {
@@ -234,12 +274,16 @@ export function SendAIMessage(arg1) {
   return window['go']['main']['App']['SendAIMessage'](arg1);
 }
 
-export function SetAIProvider(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['main']['App']['SetAIProvider'](arg1, arg2, arg3, arg4, arg5);
+export function SetAIProvider(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SetAIProvider'](arg1, arg2, arg3, arg4);
 }
 
 export function SetLanguage(arg1) {
   return window['go']['main']['App']['SetLanguage'](arg1);
+}
+
+export function SetMCPPort(arg1) {
+  return window['go']['main']['App']['SetMCPPort'](arg1);
 }
 
 export function SplitSSH(arg1, arg2, arg3) {

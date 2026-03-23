@@ -467,6 +467,24 @@ export namespace main {
 	        this.fingerprint = source["fingerprint"];
 	    }
 	}
+	export class OpsctlInfo {
+	    installed: boolean;
+	    path: string;
+	    version: string;
+	    embedded: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpsctlInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.installed = source["installed"];
+	        this.path = source["path"];
+	        this.version = source["version"];
+	        this.embedded = source["embedded"];
+	    }
+	}
 	export class SSHConnectRequest {
 	    assetId: number;
 	    password: string;
@@ -485,6 +503,20 @@ export namespace main {
 	        this.key = source["key"];
 	        this.cols = source["cols"];
 	        this.rows = source["rows"];
+	    }
+	}
+	export class SkillInfo {
+	    installed: boolean;
+	    path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SkillInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.installed = source["installed"];
+	        this.path = source["path"];
 	    }
 	}
 

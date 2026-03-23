@@ -11,3 +11,6 @@ CLAUDE.md
 *.db
 
 ops-cat
+opsctl
+
+internal/embedded/opsctl_bin

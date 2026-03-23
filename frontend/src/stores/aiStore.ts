@@ -20,17 +20,16 @@ import i18n from "../i18n";
 export interface ContentBlock {
   type: "text" | "tool";
   content: string;
-  // tool 类型专用
   toolName?: string;
   toolInput?: string;
   status?: "running" | "completed" | "error" | "pending_confirm";
-  confirmId?: string; // tool_confirm 时的确认请求 ID
+  confirmId?: string;
 }
 
 export interface ChatMessage {
   role: "user" | "assistant" | "tool";
-  content: string; // 纯文本回退（用户消息 / 旧兼容）
-  blocks: ContentBlock[]; // 结构化内容块
+  content: string;
+  blocks: ContentBlock[];
   streaming?: boolean;
 }
 
@@ -43,34 +42,41 @@ interface StreamEventData {
   error?: string;
 }
 
-interface AIState {
-  messages: ChatMessage[];
-  conversations: conversation_entity.Conversation[];
-  currentConversationId: number | null;
-  configured: boolean;
-  sending: boolean;
-  localCLIs: ai.CLIInfo[];
+// === 多 Tab 类型 ===
 
-  configure: (
-    providerType: string,
-    apiBase: string,
-    apiKey: string,
-    model: string,
-    mcpPort?: number
-  ) => Promise<void>;
-  send: (content: string) => Promise<void>;
-  detectCLIs: () => Promise<void>;
-  clear: () => void;
-  fetchConversations: () => Promise<void>;
-  createConversation: () => Promise<void>;
-  switchConversation: (id: number) => Promise<void>;
-  deleteConversation: (id: number) => Promise<void>;
+export interface AITab {
+  id: string; // "ai-{convId}" 或 "ai-new-{timestamp}"
+  conversationId: number | null;
+  title: string;
+  openedAt: number;
 }
 
-let cancelEventListener: (() => void) | null = null;
-let eventGeneration = 0;
+interface TabState {
+  messages: ChatMessage[];
+  sending: boolean;
+}
 
-// 辅助：获取最后一条 assistant 消息并更新
+// 模块级 per-tab 事件监听管理（不放 zustand，因为含函数引用）
+const tabEventListeners = new Map<
+  string,
+  { cancel: (() => void) | null; generation: number }
+>();
+
+function getOrCreateListener(tabId: string) {
+  if (!tabEventListeners.has(tabId)) {
+    tabEventListeners.set(tabId, { cancel: null, generation: 0 });
+  }
+  return tabEventListeners.get(tabId)!;
+}
+
+function cleanupListener(tabId: string) {
+  const listener = tabEventListeners.get(tabId);
+  if (listener?.cancel) listener.cancel();
+  tabEventListeners.delete(tabId);
+}
+
+// === 辅助函数 ===
+
 function updateLastAssistant(
   msgs: ChatMessage[],
   updater: (msg: ChatMessage) => ChatMessage
@@ -82,19 +88,20 @@ function updateLastAssistant(
   return updated;
 }
 
-// 辅助：追加文本到最后一个文本块，或创建新文本块
 function appendText(blocks: ContentBlock[], text: string): ContentBlock[] {
   const newBlocks = [...blocks];
   const last = newBlocks[newBlocks.length - 1];
   if (last && last.type === "text") {
-    newBlocks[newBlocks.length - 1] = { ...last, content: last.content + text };
+    newBlocks[newBlocks.length - 1] = {
+      ...last,
+      content: last.content + text,
+    };
   } else {
     newBlocks.push({ type: "text", content: text });
   }
   return newBlocks;
 }
 
-// 辅助：将显示消息转换为后端格式用于持久化
 function toDisplayMessages(
   msgs: ChatMessage[]
 ): main.ConversationDisplayMessage[] {
@@ -119,205 +126,479 @@ function toDisplayMessages(
     );
 }
 
-export const useAIStore = create<AIState>((set, get) => ({
-  messages: [],
-  conversations: [],
-  currentConversationId: null,
-  configured: false,
-  sending: false,
-  localCLIs: [],
-
-  configure: async (providerType, apiBase, apiKey, model, mcpPort) => {
-    await SetAIProvider(providerType, apiBase, apiKey, model, mcpPort || 0);
-    set({ configured: true });
-  },
-
-  fetchConversations: async () => {
-    try {
-      const convs = await ListConversations();
-      set({ conversations: convs || [] });
-    } catch {
-      set({ conversations: [] });
-    }
-  },
-
-  createConversation: async () => {
-    try {
-      const conv = await CreateConversation();
-      set({
-        currentConversationId: conv.ID,
-        messages: [],
-      });
-      // 刷新列表
-      get().fetchConversations();
-    } catch (e) {
-      console.error("创建会话失败:", e);
-    }
-  },
-
-  switchConversation: async (id: number) => {
-    if (get().sending) return;
-    const state = get();
-
-    // 保存当前会话消息
-    if (state.currentConversationId && state.messages.length > 0) {
-      SaveConversationMessages(toDisplayMessages(state.messages)).catch(
-        () => {}
-      );
-    }
-
-    // 取消旧的事件监听
-    if (cancelEventListener) {
-      cancelEventListener();
-      cancelEventListener = null;
-    }
-
-    try {
-      const displayMsgs = await SwitchConversation(id);
-      const messages: ChatMessage[] = (displayMsgs || []).map(
-        (dm: main.ConversationDisplayMessage) => ({
-          role: dm.role as "user" | "assistant" | "tool",
-          content: dm.content,
-          blocks: (dm.blocks || []).map((b: conversation_entity.ContentBlock) => ({
-            type: b.type as "text" | "tool",
-            content: b.content,
-            toolName: b.toolName,
-            toolInput: b.toolInput,
-            status: b.status as "running" | "completed" | "error" | undefined,
-          })),
-          streaming: false,
+function convertDisplayMessages(
+  displayMsgs: main.ConversationDisplayMessage[]
+): ChatMessage[] {
+  return (displayMsgs || []).map(
+    (dm: main.ConversationDisplayMessage) => ({
+      role: dm.role as "user" | "assistant" | "tool",
+      content: dm.content,
+      blocks: (dm.blocks || []).map(
+        (b: conversation_entity.ContentBlock) => ({
+          type: b.type as "text" | "tool",
+          content: b.content,
+          toolName: b.toolName,
+          toolInput: b.toolInput,
+          status: b.status as
+            | "running"
+            | "completed"
+            | "error"
+            | undefined,
         })
-      );
-      set({ currentConversationId: id, messages });
-    } catch (e) {
-      console.error("切换会话失败:", e);
-    }
-  },
+      ),
+      streaming: false,
+    })
+  );
+}
 
-  deleteConversation: async (id: number) => {
-    try {
-      await DeleteConversation(id);
-      const state = get();
-      if (state.currentConversationId === id) {
-        set({ currentConversationId: null, messages: [] });
-      }
-      get().fetchConversations();
-    } catch (e) {
-      console.error("删除会话失败:", e);
-    }
-  },
+// === Store ===
 
-  send: async (content) => {
+interface AIState {
+  // 多 Tab 状态
+  openTabs: AITab[];
+  activeAITabId: string | null;
+  tabStates: Record<string, TabState>;
+
+  // 全局状态
+  conversations: conversation_entity.Conversation[];
+  configured: boolean;
+  localCLIs: ai.CLIInfo[];
+
+  // 向后兼容（指向活跃 tab，供旧组件过渡用）
+  messages: ChatMessage[];
+  sending: boolean;
+  currentConversationId: number | null;
+
+  // 配置
+  configure: (
+    providerType: string,
+    apiBase: string,
+    apiKey: string,
+    model: string
+  ) => Promise<void>;
+  detectCLIs: () => Promise<void>;
+
+  // 发送
+  send: (content: string) => Promise<void>;
+  sendToTab: (tabId: string, content: string) => Promise<void>;
+
+  // Tab 管理
+  openConversationTab: (conversationId: number) => Promise<string>;
+  openNewConversationTab: () => string;
+  closeConversationTab: (tabId: string) => void;
+  setActiveAITab: (tabId: string | null) => void;
+  clear: () => void;
+
+  // 会话管理
+  fetchConversations: () => Promise<void>;
+  deleteConversation: (id: number) => Promise<void>;
+
+  // 查询
+  isAnySending: () => boolean;
+  getTabState: (tabId: string) => TabState;
+}
+
+export const useAIStore = create<AIState>((set, get) => {
+  // 更新指定 tab 的 state，并同步向后兼容字段
+  function updateTab(
+    tabId: string,
+    updates: Partial<TabState>
+  ) {
+    set((state) => {
+      const current = state.tabStates[tabId] || {
+        messages: [],
+        sending: false,
+      };
+      const newTabState = { ...current, ...updates };
+      const newTabStates = { ...state.tabStates, [tabId]: newTabState };
+
+      // 如果是活跃 tab，同步向后兼容字段
+      const compat =
+        state.activeAITabId === tabId
+          ? {
+              messages: newTabState.messages,
+              sending: newTabState.sending,
+            }
+          : {};
+
+      return { tabStates: newTabStates, ...compat };
+    });
+  }
+
+  // 同步向后兼容字段
+  function syncCompat(activeTabId: string | null) {
     const state = get();
-    if (state.sending) return;
+    const tab = state.openTabs.find((t) => t.id === activeTabId);
+    const tabState = activeTabId
+      ? state.tabStates[activeTabId]
+      : null;
+    set({
+      messages: tabState?.messages || [],
+      sending: tabState?.sending || false,
+      currentConversationId: tab?.conversationId || null,
+    });
+  }
 
-    let actualContent = content;
+  return {
+    openTabs: [],
+    activeAITabId: null,
+    tabStates: {},
 
-    // 拦截 /init 命令
-    if (content.trim() === "/init") {
-      const { selectedAssetId, selectedGroupId } = useAssetStore.getState();
-      if (!selectedAssetId && !selectedGroupId) {
-        set({
-          messages: [
-            ...state.messages,
-            { role: "user", content: "/init", blocks: [] },
-            {
-              role: "assistant",
-              content: i18n.t("ai.initNoSelection"),
-              blocks: [
-                { type: "text", content: i18n.t("ai.initNoSelection") },
-              ],
-              streaming: false,
-            },
-          ],
-        });
-        return;
-      }
+    conversations: [],
+    configured: false,
+    localCLIs: [],
+
+    // 向后兼容
+    messages: [],
+    sending: false,
+    currentConversationId: null,
+
+    configure: async (providerType, apiBase, apiKey, model) => {
+      await SetAIProvider(providerType, apiBase, apiKey, model);
+      set({ configured: true });
+    },
+
+    detectCLIs: async () => {
+      const clis = await DetectLocalCLIs();
+      set({ localCLIs: clis || [] });
+    },
+
+    fetchConversations: async () => {
       try {
-        actualContent = await GetInitContext(
-          selectedAssetId || 0,
-          selectedGroupId || 0
+        const convs = await ListConversations();
+        set({ conversations: convs || [] });
+      } catch {
+        set({ conversations: [] });
+      }
+    },
+
+    deleteConversation: async (id: number) => {
+      try {
+        await DeleteConversation(id);
+        // 如果有打开的 tab 对应这个会话，关闭它
+        const state = get();
+        const tab = state.openTabs.find(
+          (t) => t.conversationId === id
         );
+        if (tab) {
+          get().closeConversationTab(tab.id);
+        }
+        await get().fetchConversations();
       } catch (e) {
-        const errMsg = `${i18n.t("ai.initError")}: ${e}`;
-        set({
-          messages: [
-            ...state.messages,
-            { role: "user", content: "/init", blocks: [] },
-            {
-              role: "assistant",
-              content: errMsg,
-              blocks: [{ type: "text", content: errMsg }],
-              streaming: false,
-            },
-          ],
-        });
-        return;
+        console.error("删除会话失败:", e);
       }
-    }
+    },
 
-    // 添加用户消息
-    const displayContent = content.trim() === "/init" ? "/init" : content;
-    const userMsg: ChatMessage = {
-      role: "user",
-      content: displayContent,
-      blocks: [],
-    };
-    const newMessages = [...state.messages, userMsg];
-    set({ messages: newMessages, sending: true });
+    // === Tab 管理 ===
 
-    // 添加空的 assistant 消息（用于流式填充）
-    const assistantMsg: ChatMessage = {
-      role: "assistant",
-      content: "",
-      blocks: [],
-      streaming: true,
-    };
-    set({ messages: [...newMessages, assistantMsg] });
+    openConversationTab: async (conversationId: number) => {
+      const state = get();
+      // 如果已打开，直接切换
+      const existing = state.openTabs.find(
+        (t) => t.conversationId === conversationId
+      );
+      if (existing) {
+        get().setActiveAITab(existing.id);
+        return existing.id;
+      }
 
-    // 确保有会话ID（没有则先创建）
-    let convId = state.currentConversationId;
-    if (!convId) {
+      const tabId = `ai-${conversationId}`;
+      const conv = state.conversations.find(
+        (c) => c.ID === conversationId
+      );
+      const title = conv?.Title || "对话";
+
+      // 加载消息
       try {
-        const conv = await CreateConversation();
-        convId = conv.ID;
-        set({ currentConversationId: convId });
-        get().fetchConversations();
+        const displayMsgs = await SwitchConversation(conversationId);
+        const messages = convertDisplayMessages(displayMsgs);
+
+        const tab: AITab = {
+          id: tabId,
+          conversationId,
+          title,
+          openedAt: Date.now(),
+        };
+
+        set((state) => ({
+          openTabs: [...state.openTabs, tab],
+          activeAITabId: tabId,
+          tabStates: {
+            ...state.tabStates,
+            [tabId]: { messages, sending: false },
+          },
+          // 同步向后兼容
+          messages,
+          sending: false,
+          currentConversationId: conversationId,
+        }));
+
+        return tabId;
       } catch (e) {
-        set({ sending: false });
+        console.error("打开会话失败:", e);
+        throw e;
+      }
+    },
+
+    openNewConversationTab: () => {
+      const tabId = `ai-new-${Date.now()}`;
+      const tab: AITab = {
+        id: tabId,
+        conversationId: null,
+        title: i18n.t("ai.newConversation", "新对话"),
+        openedAt: Date.now(),
+      };
+
+      set((state) => ({
+        openTabs: [...state.openTabs, tab],
+        activeAITabId: tabId,
+        tabStates: {
+          ...state.tabStates,
+          [tabId]: { messages: [], sending: false },
+        },
+        // 同步向后兼容
+        messages: [],
+        sending: false,
+        currentConversationId: null,
+      }));
+
+      return tabId;
+    },
+
+    closeConversationTab: (tabId: string) => {
+      const state = get();
+      const tab = state.openTabs.find((t) => t.id === tabId);
+      const tabState = state.tabStates[tabId];
+
+      // 保存消息
+      if (tab?.conversationId && tabState?.messages.length) {
+        // 先切换后端到这个会话再保存
+        SwitchConversation(tab.conversationId)
+          .then(() =>
+            SaveConversationMessages(
+              toDisplayMessages(tabState.messages)
+            )
+          )
+          .catch(() => {});
+      }
+
+      // 清理事件监听
+      cleanupListener(tabId);
+
+      // 移除 tab
+      set((state) => {
+        const newTabs = state.openTabs.filter((t) => t.id !== tabId);
+        const { [tabId]: _, ...newTabStates } = state.tabStates;
+
+        // 如果关闭的是活跃 tab，切换到最后一个
+        let newActiveId = state.activeAITabId;
+        if (state.activeAITabId === tabId) {
+          newActiveId =
+            newTabs.length > 0 ? newTabs[newTabs.length - 1].id : null;
+        }
+
+        const activeTabState = newActiveId
+          ? newTabStates[newActiveId]
+          : null;
+        const activeTab = newTabs.find((t) => t.id === newActiveId);
+
+        return {
+          openTabs: newTabs,
+          activeAITabId: newActiveId,
+          tabStates: newTabStates,
+          messages: activeTabState?.messages || [],
+          sending: activeTabState?.sending || false,
+          currentConversationId: activeTab?.conversationId || null,
+        };
+      });
+    },
+
+    setActiveAITab: (tabId: string | null) => {
+      set({ activeAITabId: tabId });
+      syncCompat(tabId);
+    },
+
+    // === 向后兼容 ===
+
+    send: async (content: string) => {
+      const { activeAITabId } = get();
+      if (!activeAITabId) {
+        // 自动创建新 tab
+        const newTabId = get().openNewConversationTab();
+        await get().sendToTab(newTabId, content);
         return;
       }
-    }
+      await get().sendToTab(activeAITabId, content);
+    },
 
-    // 在发送消息前设置事件监听（避免竞态）
-    {
-      const eventConvId = convId;
-      const eventName = "ai:event:" + eventConvId;
+    clear: () => {
+      const { activeAITabId } = get();
+      if (activeAITabId) {
+        get().closeConversationTab(activeAITabId);
+      }
+      ResetAISession().catch(() => {});
+    },
 
-      // 递增代数，防止旧监听器残留导致重复
-      eventGeneration++;
-      const myGeneration = eventGeneration;
+    // === 核心发送 ===
 
-      if (cancelEventListener) {
-        cancelEventListener();
-        cancelEventListener = null;
+    sendToTab: async (tabId: string, content: string) => {
+      const state = get();
+      // 全局并发锁：只允许一个 tab 发送
+      if (state.isAnySending()) return;
+
+      const tabState = state.tabStates[tabId];
+      if (!tabState) return;
+
+      let actualContent = content;
+
+      // 拦截 /init 命令
+      if (content.trim() === "/init") {
+        const { selectedAssetId, selectedGroupId } =
+          useAssetStore.getState();
+        if (!selectedAssetId && !selectedGroupId) {
+          updateTab(tabId, {
+            messages: [
+              ...tabState.messages,
+              { role: "user", content: "/init", blocks: [] },
+              {
+                role: "assistant",
+                content: i18n.t("ai.initNoSelection"),
+                blocks: [
+                  {
+                    type: "text",
+                    content: i18n.t("ai.initNoSelection"),
+                  },
+                ],
+                streaming: false,
+              },
+            ],
+          });
+          return;
+        }
+        try {
+          actualContent = await GetInitContext(
+            selectedAssetId || 0,
+            selectedGroupId || 0
+          );
+        } catch (e) {
+          const errMsg = `${i18n.t("ai.initError")}: ${e}`;
+          updateTab(tabId, {
+            messages: [
+              ...tabState.messages,
+              { role: "user", content: "/init", blocks: [] },
+              {
+                role: "assistant",
+                content: errMsg,
+                blocks: [{ type: "text", content: errMsg }],
+                streaming: false,
+              },
+            ],
+          });
+          return;
+        }
       }
 
-      cancelEventListener = EventsOn(
+      // 添加用户消息
+      const displayContent =
+        content.trim() === "/init" ? "/init" : content;
+      const userMsg: ChatMessage = {
+        role: "user",
+        content: displayContent,
+        blocks: [],
+      };
+      const newMessages = [...tabState.messages, userMsg];
+      updateTab(tabId, { messages: newMessages, sending: true });
+
+      // 第一条消息作为会话标题
+      if (tabState.messages.length === 0) {
+        const title =
+          displayContent.length > 30
+            ? displayContent.slice(0, 30) + "…"
+            : displayContent;
+        set((state) => ({
+          openTabs: state.openTabs.map((t) =>
+            t.id === tabId ? { ...t, title } : t
+          ),
+        }));
+      }
+
+      // 添加空的 assistant 消息（用于流式填充）
+      const assistantMsg: ChatMessage = {
+        role: "assistant",
+        content: "",
+        blocks: [],
+        streaming: true,
+      };
+      updateTab(tabId, {
+        messages: [...newMessages, assistantMsg],
+      });
+
+      // 确保 tab 有会话 ID
+      let tab = get().openTabs.find((t) => t.id === tabId);
+      let convId = tab?.conversationId || null;
+
+      if (!convId) {
+        try {
+          const conv = await CreateConversation();
+          convId = conv.ID;
+          // 更新 tab 的 conversationId
+          set((state) => ({
+            openTabs: state.openTabs.map((t) =>
+              t.id === tabId
+                ? { ...t, conversationId: convId }
+                : t
+            ),
+            currentConversationId:
+              state.activeAITabId === tabId
+                ? convId
+                : state.currentConversationId,
+          }));
+          get().fetchConversations();
+        } catch {
+          updateTab(tabId, { sending: false });
+          return;
+        }
+      } else {
+        // 确保后端指向正确的会话
+        try {
+          await SwitchConversation(convId);
+        } catch {
+          // SwitchConversation 失败不阻塞发送
+        }
+      }
+
+      // 设置事件监听
+      const listener = getOrCreateListener(tabId);
+      listener.generation++;
+      const myGeneration = listener.generation;
+
+      if (listener.cancel) {
+        listener.cancel();
+        listener.cancel = null;
+      }
+
+      const eventName = `ai:event:${convId}`;
+      listener.cancel = EventsOn(
         eventName,
         (event: StreamEventData) => {
-          if (myGeneration !== eventGeneration) return;
+          if (myGeneration !== listener.generation) return;
 
-          const msgs = get().messages;
+          const currentTabState = get().tabStates[tabId];
+          if (!currentTabState) return;
+          const msgs = currentTabState.messages;
 
           switch (event.type) {
             case "content": {
               const updated = updateLastAssistant(msgs, (msg) => ({
                 ...msg,
                 content: msg.content + (event.content || ""),
-                blocks: appendText(msg.blocks, event.content || ""),
+                blocks: appendText(
+                  msg.blocks,
+                  event.content || ""
+                ),
               }));
-              if (updated) set({ messages: updated });
+              if (updated)
+                updateTab(tabId, { messages: updated });
               break;
             }
 
@@ -335,13 +616,16 @@ export const useAIStore = create<AIState>((set, get) => ({
                   },
                 ],
               }));
-              if (updated) set({ messages: updated });
+              if (updated)
+                updateTab(tabId, { messages: updated });
               break;
             }
 
             case "tool_result": {
               const updated = updateLastAssistant(msgs, (msg) => {
                 const newBlocks = [...msg.blocks];
+                // 先按 toolName 精确匹配
+                let matchIdx = -1;
                 for (let i = newBlocks.length - 1; i >= 0; i--) {
                   const b = newBlocks[i];
                   if (
@@ -349,42 +633,78 @@ export const useAIStore = create<AIState>((set, get) => ({
                     b.status === "running" &&
                     b.toolName === event.tool_name
                   ) {
-                    newBlocks[i] = {
-                      ...b,
-                      content: event.content || "",
-                      status: "completed",
-                    };
+                    matchIdx = i;
                     break;
                   }
                 }
+                // 匹配不到时 fallback 到最后一个 running 的 tool block
+                // （MCP 工具的 tool_start 和 tool_result 可能 toolName 不同）
+                if (matchIdx === -1) {
+                  for (let i = newBlocks.length - 1; i >= 0; i--) {
+                    const b = newBlocks[i];
+                    if (b.type === "tool" && b.status === "running") {
+                      matchIdx = i;
+                      break;
+                    }
+                  }
+                }
+                if (matchIdx !== -1) {
+                  newBlocks[matchIdx] = {
+                    ...newBlocks[matchIdx],
+                    content: event.content || "",
+                    status: "completed",
+                  };
+                }
                 return { ...msg, blocks: newBlocks };
               });
-              if (updated) set({ messages: updated });
+              if (updated)
+                updateTab(tabId, { messages: updated });
               break;
             }
 
             case "tool_confirm": {
-              // 在聊天流中插入待确认的 tool block
-              const updated = updateLastAssistant(msgs, (msg) => ({
-                ...msg,
-                blocks: [
-                  ...msg.blocks,
-                  {
+              const confirmName = event.tool_name || "run_command";
+              const updated = updateLastAssistant(msgs, (msg) => {
+                const newBlocks = [...msg.blocks];
+                // Codex 顺序执行工具，tool_confirm 一定对应最后一个 running block
+                let existIdx = -1;
+                for (let i = newBlocks.length - 1; i >= 0; i--) {
+                  if (
+                    newBlocks[i].type === "tool" &&
+                    newBlocks[i].status === "running"
+                  ) {
+                    existIdx = i;
+                    break;
+                  }
+                }
+                if (existIdx !== -1) {
+                  // 复用已有 block，更新为 pending_confirm
+                  newBlocks[existIdx] = {
+                    ...newBlocks[existIdx],
+                    toolName: confirmName,
+                    toolInput: event.tool_input || newBlocks[existIdx].toolInput,
+                    status: "pending_confirm" as const,
+                    confirmId: event.confirm_id,
+                  };
+                } else {
+                  // 没有 running block（item/started 未触发），新建
+                  newBlocks.push({
                     type: "tool" as const,
                     content: "",
-                    toolName: event.tool_name || "run_command",
+                    toolName: confirmName,
                     toolInput: event.tool_input || "",
                     status: "pending_confirm" as const,
                     confirmId: event.confirm_id,
-                  },
-                ],
-              }));
-              if (updated) set({ messages: updated });
+                  });
+                }
+                return { ...msg, blocks: newBlocks };
+              });
+              if (updated)
+                updateTab(tabId, { messages: updated });
               break;
             }
 
             case "tool_confirm_result": {
-              // 用户确认后更新 block 状态
               const updated = updateLastAssistant(msgs, (msg) => {
                 const newBlocks = msg.blocks.map((b) =>
                   b.confirmId === event.confirm_id &&
@@ -400,29 +720,60 @@ export const useAIStore = create<AIState>((set, get) => ({
                 );
                 return { ...msg, blocks: newBlocks };
               });
-              if (updated) set({ messages: updated });
+              if (updated)
+                updateTab(tabId, { messages: updated });
               break;
             }
 
             case "done": {
               const updated = updateLastAssistant(msgs, (msg) => {
                 const newBlocks = msg.blocks.map((b) =>
-                  b.type === "tool" && b.status === "running"
+                  b.type === "tool" && (b.status === "running" || b.status === "pending_confirm")
                     ? { ...b, status: "completed" as const }
                     : b
                 );
-                return { ...msg, blocks: newBlocks, streaming: false };
+                return {
+                  ...msg,
+                  blocks: newBlocks,
+                  streaming: false,
+                };
               });
-              if (updated) set({ messages: updated, sending: false });
-              else set({ sending: false });
+              if (updated) {
+                updateTab(tabId, {
+                  messages: updated,
+                  sending: false,
+                });
+              } else {
+                updateTab(tabId, { sending: false });
+              }
 
               // 持久化消息
-              const finalMsgs = get().messages;
-              SaveConversationMessages(toDisplayMessages(finalMsgs)).catch(
-                () => {}
-              );
-              // 刷新会话列表（标题可能已更新）
-              get().fetchConversations();
+              const finalMsgs =
+                get().tabStates[tabId]?.messages || [];
+              SaveConversationMessages(
+                toDisplayMessages(finalMsgs)
+              ).catch(() => {});
+              // 刷新会话列表（标题可能更新），完成后同步 tab 标题
+              get().fetchConversations().then(() => {
+                const convs = get().conversations;
+                const currentTab = get().openTabs.find(
+                  (t) => t.id === tabId
+                );
+                if (currentTab?.conversationId) {
+                  const conv = convs.find(
+                    (c) => c.ID === currentTab.conversationId
+                  );
+                  if (conv && conv.Title !== currentTab.title) {
+                    set((state) => ({
+                      openTabs: state.openTabs.map((t) =>
+                        t.id === tabId
+                          ? { ...t, title: conv.Title }
+                          : t
+                      ),
+                    }));
+                  }
+                }
+              });
               break;
             }
 
@@ -435,71 +786,75 @@ export const useAIStore = create<AIState>((set, get) => ({
                 ),
                 streaming: false,
               }));
-              if (updated) set({ messages: updated, sending: false });
-              else set({ sending: false });
+              if (updated) {
+                updateTab(tabId, {
+                  messages: updated,
+                  sending: false,
+                });
+              } else {
+                updateTab(tabId, { sending: false });
+              }
               break;
             }
           }
         }
       );
-    }
 
-    // 转换为后端消息格式
-    const apiMessages = newMessages.map((m, idx) => {
-      const msgContent =
-        idx === newMessages.length - 1 ? actualContent : m.content;
-      return new ai.Message({
-        role: m.role,
-        content: msgContent,
+      // 转换为后端消息格式
+      const apiMessages = newMessages.map((m, idx) => {
+        const msgContent =
+          idx === newMessages.length - 1 ? actualContent : m.content;
+        return new ai.Message({
+          role: m.role,
+          content: msgContent,
+        });
       });
-    });
 
-    try {
-      await SendAIMessage(apiMessages);
-    } catch (e) {
-      set({ sending: false });
-      if (cancelEventListener) {
-        cancelEventListener();
-        cancelEventListener = null;
+      try {
+        await SendAIMessage(apiMessages);
+      } catch {
+        updateTab(tabId, { sending: false });
+        cleanupListener(tabId);
       }
-    }
-  },
+    },
 
-  detectCLIs: async () => {
-    const clis = await DetectLocalCLIs();
-    set({ localCLIs: clis || [] });
-  },
+    // === 查询 ===
 
-  clear: () => {
-    const state = get();
-    // 保存当前会话消息
-    if (state.currentConversationId && state.messages.length > 0) {
-      SaveConversationMessages(toDisplayMessages(state.messages)).catch(
-        () => {}
+    isAnySending: () => {
+      const { tabStates } = get();
+      return Object.values(tabStates).some((ts) => ts.sending);
+    },
+
+    getTabState: (tabId: string) => {
+      return (
+        get().tabStates[tabId] || { messages: [], sending: false }
       );
-    }
-    set({ messages: [], sending: false, currentConversationId: null });
-    if (cancelEventListener) {
-      cancelEventListener();
-      cancelEventListener = null;
-    }
-    ResetAISession().catch(() => {});
-  },
-}));
+    },
+  };
+});
 
-// 应用启动时自动恢复 AI 配置
+// 应用启动时自动恢复 AI 配置并打开默认 tab
 const providerType = localStorage.getItem("ai_provider_type");
 if (providerType) {
   const apiBase = localStorage.getItem("ai_api_base") || "";
   const apiKey = localStorage.getItem("ai_api_key") || "";
   const model = localStorage.getItem("ai_model") || "";
-  const mcpPort = Number(localStorage.getItem("mcp_port") || "0");
   useAIStore
     .getState()
-    .configure(providerType, apiBase, apiKey, model, mcpPort)
-    .then(() => {
-      // 配置完成后加载会话列表
-      useAIStore.getState().fetchConversations();
+    .configure(providerType, apiBase, apiKey, model)
+    .then(async () => {
+      const store = useAIStore.getState();
+      await store.fetchConversations();
+      // 自动打开最近的会话或新建一个
+      const { conversations } = useAIStore.getState();
+      if (conversations.length > 0) {
+        store.openConversationTab(conversations[0].ID).catch(() => {});
+      } else {
+        store.openNewConversationTab();
+      }
     })
     .catch(() => {});
+} else {
+  // 未配置也打开一个新 tab（显示未配置提示）
+  useAIStore.getState().openNewConversationTab();
 }

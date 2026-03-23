@@ -29,6 +29,22 @@ type CommandPolicy struct {
 	DenyList  []string `json:"deny_list"`  // 始终拒绝的命令规则
 }
 
+// DefaultCommandPolicy 返回默认命令权限策略（包含高危命令拒绝列表）
+func DefaultCommandPolicy() *CommandPolicy {
+	return &CommandPolicy{
+		DenyList: []string{
+			"rm -rf / *",  // 删除根目录
+			"rm -rf /* *", // 删除根目录下所有内容
+			"mkfs *",      // 格式化磁盘
+			"dd *",        // 磁盘级写入
+			"shutdown *",  // 关机
+			"reboot *",    // 重启
+			"poweroff *",  // 关机
+			"halt *",      // 停机
+		},
+	}
+}
+
 // Asset 通用资产实体（充血模型）
 type Asset struct {
 	ID            int64  `gorm:"column:id;primaryKey;autoIncrement"`
