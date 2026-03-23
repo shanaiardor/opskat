@@ -1,0 +1,353 @@
+package import_svc
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
+
+	"ops-cat/internal/model/entity/asset_entity"
+	"ops-cat/internal/repository/asset_repo"
+	"ops-cat/internal/repository/group_repo"
+)
+
+// sshConfigHost 解析后的 SSH Config Host 块
+type sshConfigHost struct {
+	alias        string
+	hostName     string
+	port         int
+	user         string
+	identityFile string
+	proxyJump    string
+}
+
+// PreviewSSHConfig 解析 SSH Config 文件，返回预览（不写数据库）
+func PreviewSSHConfig(ctx context.Context, data []byte) (*PreviewResult, error) {
+	hosts := parseSSHConfig(string(data))
+
+	// 加载已有资产用于重复检测
+	existingAssets, err := asset_repo.Asset().List(ctx, asset_repo.ListOptions{Type: asset_entity.AssetTypeSSH})
+	if err != nil {
+		return nil, fmt.Errorf("查询已有资产失败: %w", err)
+	}
+	existingSet := make(map[string]bool, len(existingAssets))
+	for _, a := range existingAssets {
+		sshCfg, err := a.GetSSHConfig()
+		if err != nil {
+			continue
+		}
+		existingSet[fmt.Sprintf("%s:%d:%s", sshCfg.Host, sshCfg.Port, sshCfg.Username)] = true
+	}
+
+	var items []PreviewItem
+	for idx, h := range hosts {
+		port := h.port
+		if port == 0 {
+			port = 22
+		}
+		user := h.user
+		if user == "" {
+			user = "root"
+		}
+		name := h.alias
+		if name == "" {
+			name = fmt.Sprintf("%s@%s:%d", user, h.hostName, port)
+		}
+
+		authType := asset_entity.AuthTypePassword
+		if h.identityFile != "" {
+			authType = asset_entity.AuthTypeKey
+		}
+
+		exists := existingSet[fmt.Sprintf("%s:%d:%s", h.hostName, port, user)]
+
+		items = append(items, PreviewItem{
+			Index:    idx,
+			Name:     name,
+			Host:     h.hostName,
+			Port:     port,
+			Username: user,
+			AuthType: authType,
+			Exists:   exists,
+		})
+	}
+
+	return &PreviewResult{Items: items}, nil
+}
+
+// ImportSSHConfigSelected 导入用户选中的 SSH Config 连接
+func ImportSSHConfigSelected(ctx context.Context, data []byte, selectedIndexes []int) (*ImportResult, error) {
+	hosts := parseSSHConfig(string(data))
+
+	// 构建选中索引集合
+	selectedSet := make(map[int]bool, len(selectedIndexes))
+	for _, i := range selectedIndexes {
+		selectedSet[i] = true
+	}
+
+	var toImport []sshConfigHost
+	for i, h := range hosts {
+		if selectedSet[i] {
+			toImport = append(toImport, h)
+		}
+	}
+
+	result := &ImportResult{Total: len(toImport)}
+	if len(toImport) == 0 {
+		return result, nil
+	}
+
+	// 加载已有资产用于重复检测
+	existingAssets, err := asset_repo.Asset().List(ctx, asset_repo.ListOptions{Type: asset_entity.AssetTypeSSH})
+	if err != nil {
+		return nil, fmt.Errorf("查询已有资产失败: %w", err)
+	}
+	existingSet := make(map[string]bool, len(existingAssets))
+	for _, a := range existingAssets {
+		sshCfg, err := a.GetSSHConfig()
+		if err != nil {
+			continue
+		}
+		existingSet[fmt.Sprintf("%s:%d:%s", sshCfg.Host, sshCfg.Port, sshCfg.Username)] = true
+	}
+
+	existingGroups, err := group_repo.Group().List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("查询已有分组失败: %w", err)
+	}
+	groupCache := buildGroupCache(existingGroups)
+
+	// 第一轮：创建资产，记录 alias → assetID
+	aliasToID := make(map[string]int64)
+	type jumpPending struct {
+		assetID   int64
+		proxyJump string
+	}
+	var pendingJumps []jumpPending
+
+	for _, h := range toImport {
+		port := h.port
+		if port == 0 {
+			port = 22
+		}
+		user := h.user
+		if user == "" {
+			user = "root"
+		}
+		name := h.alias
+		if name == "" {
+			name = fmt.Sprintf("%s@%s:%d", user, h.hostName, port)
+		}
+
+		dupKey := fmt.Sprintf("%s:%d:%s", h.hostName, port, user)
+		if existingSet[dupKey] {
+			result.Skipped++
+			continue
+		}
+
+		authType := asset_entity.AuthTypePassword
+		var privateKeys []string
+		if h.identityFile != "" {
+			authType = asset_entity.AuthTypeKey
+			keyPath := expandPath(h.identityFile)
+			privateKeys = []string{keyPath}
+		}
+
+		sshCfg := &asset_entity.SSHConfig{
+			Host:        h.hostName,
+			Port:        port,
+			Username:    user,
+			AuthType:    authType,
+			PrivateKeys: privateKeys,
+		}
+
+		// 使用 SSH Config 的 Host alias 作为分组依据时不分组，直接放根目录
+		groupID := int64(0)
+		_ = groupCache // 预留分组逻辑
+
+		asset := &asset_entity.Asset{
+			Name:    name,
+			Type:    asset_entity.AssetTypeSSH,
+			GroupID: groupID,
+			Icon:    "server",
+			Status:  asset_entity.StatusActive,
+		}
+		if err := asset.SetSSHConfig(sshCfg); err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, ImportError{Name: name, Reason: fmt.Sprintf("序列化配置失败: %v", err)})
+			continue
+		}
+
+		now := time.Now().Unix()
+		asset.Createtime = now
+		asset.Updatetime = now
+
+		if err := asset_repo.Asset().Create(ctx, asset); err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, ImportError{Name: name, Reason: fmt.Sprintf("创建资产失败: %v", err)})
+			continue
+		}
+
+		existingSet[dupKey] = true
+		aliasToID[h.alias] = asset.ID
+		result.Success++
+
+		if h.proxyJump != "" {
+			pendingJumps = append(pendingJumps, jumpPending{assetID: asset.ID, proxyJump: h.proxyJump})
+		}
+	}
+
+	// 第二轮：回填 ProxyJump → JumpHostID
+	for _, p := range pendingJumps {
+		jumpAlias := p.proxyJump
+		jumpAssetID, ok := aliasToID[jumpAlias]
+		if !ok {
+			// 尝试在已有资产中按名称查找
+			jumpAssetID = findAssetIDByName(existingAssets, jumpAlias)
+		}
+		if jumpAssetID == 0 {
+			continue
+		}
+		asset, err := asset_repo.Asset().Find(ctx, p.assetID)
+		if err != nil {
+			continue
+		}
+		sshCfg, err := asset.GetSSHConfig()
+		if err != nil {
+			continue
+		}
+		sshCfg.JumpHostID = jumpAssetID
+		if err := asset.SetSSHConfig(sshCfg); err != nil {
+			continue
+		}
+		asset.Updatetime = time.Now().Unix()
+		_ = asset_repo.Asset().Update(ctx, asset)
+	}
+
+	return result, nil
+}
+
+// parseSSHConfig 解析 SSH Config 文件内容
+func parseSSHConfig(content string) []sshConfigHost {
+	var hosts []sshConfigHost
+	var current *sshConfigHost
+
+	scanner := bufio.NewScanner(strings.NewReader(content))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		// 跳过空行和注释
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// 解析 key value（支持 = 和空格分隔）
+		key, value := splitDirective(line)
+		if key == "" {
+			continue
+		}
+
+		switch strings.ToLower(key) {
+		case "host":
+			// 跳过通配符 pattern（如 * 或 *.example.com）
+			if strings.Contains(value, "*") || strings.Contains(value, "?") {
+				current = nil
+				continue
+			}
+			// 多个 host alias 只取第一个
+			alias := strings.Fields(value)[0]
+			hosts = append(hosts, sshConfigHost{alias: alias})
+			current = &hosts[len(hosts)-1]
+
+		case "hostname":
+			if current != nil {
+				current.hostName = value
+			}
+		case "port":
+			if current != nil {
+				if p, err := strconv.Atoi(value); err == nil {
+					current.port = p
+				}
+			}
+		case "user":
+			if current != nil {
+				current.user = value
+			}
+		case "identityfile":
+			if current != nil {
+				current.identityFile = value
+			}
+		case "proxyjump":
+			if current != nil {
+				// ProxyJump 可能是 user@host:port 格式，也可能是别名
+				// 取第一跳
+				first := strings.Split(value, ",")[0]
+				current.proxyJump = strings.TrimSpace(first)
+			}
+		}
+	}
+
+	// 过滤掉没有 HostName 的条目
+	var result []sshConfigHost
+	for _, h := range hosts {
+		if h.hostName != "" {
+			result = append(result, h)
+		}
+	}
+	return result
+}
+
+// splitDirective 将 SSH Config 行拆分为 key 和 value
+// 支持 "Key Value" 和 "Key=Value" 两种格式
+func splitDirective(line string) (string, string) {
+	// 先尝试 = 分隔
+	if idx := strings.Index(line, "="); idx > 0 {
+		return strings.TrimSpace(line[:idx]), strings.TrimSpace(line[idx+1:])
+	}
+	// 空格分隔
+	fields := strings.SplitN(line, " ", 2)
+	if len(fields) < 2 {
+		fields = strings.SplitN(line, "\t", 2)
+	}
+	if len(fields) < 2 {
+		return "", ""
+	}
+	return strings.TrimSpace(fields[0]), strings.TrimSpace(fields[1])
+}
+
+// expandPath 展开路径中的 ~ 为 home 目录
+func expandPath(path string) string {
+	if strings.HasPrefix(path, "~/") || path == "~" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return filepath.Join(home, path[2:])
+	}
+	return path
+}
+
+// DetectSSHConfigPath 检测 SSH Config 默认路径
+func DetectSSHConfigPath() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	var path string
+	switch runtime.GOOS {
+	case "windows":
+		path = filepath.Join(homeDir, ".ssh", "config")
+	default:
+		path = filepath.Join(homeDir, ".ssh", "config")
+	}
+
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	return ""
+}

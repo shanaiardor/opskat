@@ -55,13 +55,15 @@ func NewMCPServer(checker *CommandPolicyChecker) *MCPServer {
 	}
 }
 
-// Start 启动 MCP Server，监听 127.0.0.1 随机端口，生成 CLI 配置文件
+// Start 启动 MCP Server，监听 127.0.0.1 指定端口，生成 CLI 配置文件
 // configDir 为应用数据目录，MCP 配置文件写入此目录
-func (s *MCPServer) Start(ctx context.Context, configDir string) error {
+// port 为 0 时随机分配端口，非 0 时使用指定端口（失败则直接报错）
+func (s *MCPServer) Start(ctx context.Context, configDir string, port int) error {
 	s.configDir = configDir
 
-	// 监听随机端口
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	// 监听端口
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("MCP Server 监听失败: %w", err)
 	}

@@ -24,6 +24,9 @@ export function TerminalToolbar({ tabId }: TerminalToolbarProps) {
 
   if (!tab) return null;
 
+  // 连接中的 tab 没有有效的 pane，不显示工具栏
+  if (Object.keys(tab.panes).length === 0) return null;
+
   const sessionId = tab.activePaneId;
 
   const openBrowser = (mode: "upload" | "download") => {

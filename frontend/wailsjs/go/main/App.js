@@ -6,8 +6,16 @@ export function CancelGitHubAuth() {
   return window['go']['main']['App']['CancelGitHubAuth']();
 }
 
+export function CancelSSHConnect(arg1) {
+  return window['go']['main']['App']['CancelSSHConnect'](arg1);
+}
+
 export function ConnectSSH(arg1) {
   return window['go']['main']['App']['ConnectSSH'](arg1);
+}
+
+export function ConnectSSHAsync(arg1) {
+  return window['go']['main']['App']['ConnectSSHAsync'](arg1);
 }
 
 export function CreateAsset(arg1) {
@@ -98,6 +106,10 @@ export function ImportFromGist(arg1, arg2, arg3) {
   return window['go']['main']['App']['ImportFromGist'](arg1, arg2, arg3);
 }
 
+export function ImportSSHConfigSelected(arg1) {
+  return window['go']['main']['App']['ImportSSHConfigSelected'](arg1);
+}
+
 export function ImportSSHKeyFile(arg1, arg2) {
   return window['go']['main']['App']['ImportSSHKeyFile'](arg1, arg2);
 }
@@ -138,6 +150,18 @@ export function LoadCredential(arg1) {
   return window['go']['main']['App']['LoadCredential'](arg1);
 }
 
+export function MoveAsset(arg1, arg2) {
+  return window['go']['main']['App']['MoveAsset'](arg1, arg2);
+}
+
+export function MoveGroup(arg1, arg2) {
+  return window['go']['main']['App']['MoveGroup'](arg1, arg2);
+}
+
+export function PreviewSSHConfig() {
+  return window['go']['main']['App']['PreviewSSHConfig']();
+}
+
 export function PreviewTabbyConfig() {
   return window['go']['main']['App']['PreviewTabbyConfig']();
 }
@@ -148,6 +172,10 @@ export function ResetAISession() {
 
 export function ResizeSSH(arg1, arg2, arg3) {
   return window['go']['main']['App']['ResizeSSH'](arg1, arg2, arg3);
+}
+
+export function RespondAuthChallenge(arg1, arg2) {
+  return window['go']['main']['App']['RespondAuthChallenge'](arg1, arg2);
 }
 
 export function RespondCommandConfirm(arg1, arg2) {
@@ -206,8 +234,8 @@ export function SendAIMessage(arg1) {
   return window['go']['main']['App']['SendAIMessage'](arg1);
 }
 
-export function SetAIProvider(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['SetAIProvider'](arg1, arg2, arg3, arg4);
+export function SetAIProvider(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['SetAIProvider'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function SetLanguage(arg1) {
@@ -226,8 +254,16 @@ export function SwitchConversation(arg1) {
   return window['go']['main']['App']['SwitchConversation'](arg1);
 }
 
+export function TestSSHConnection(arg1, arg2) {
+  return window['go']['main']['App']['TestSSHConnection'](arg1, arg2);
+}
+
 export function UpdateAsset(arg1) {
   return window['go']['main']['App']['UpdateAsset'](arg1);
+}
+
+export function UpdateAssetPassword(arg1, arg2) {
+  return window['go']['main']['App']['UpdateAssetPassword'](arg1, arg2);
 }
 
 export function UpdateGroup(arg1) {

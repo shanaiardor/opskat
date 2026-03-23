@@ -12,7 +12,11 @@ import {sftp_svc} from '../models';
 
 export function CancelGitHubAuth():Promise<void>;
 
+export function CancelSSHConnect(arg1:string):Promise<void>;
+
 export function ConnectSSH(arg1:main.SSHConnectRequest):Promise<string>;
+
+export function ConnectSSHAsync(arg1:main.SSHConnectRequest):Promise<string>;
 
 export function CreateAsset(arg1:asset_entity.Asset):Promise<void>;
 
@@ -58,6 +62,8 @@ export function GetSSHKeyUsage(arg1:number):Promise<Array<string>>;
 
 export function ImportFromGist(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function ImportSSHConfigSelected(arg1:Array<number>):Promise<import_svc.ImportResult>;
+
 export function ImportSSHKeyFile(arg1:string,arg2:string):Promise<ssh_key_entity.SSHKey>;
 
 export function ImportSSHKeyPEM(arg1:string,arg2:string,arg3:string):Promise<ssh_key_entity.SSHKey>;
@@ -78,11 +84,19 @@ export function ListSSHKeys():Promise<Array<ssh_key_entity.SSHKey>>;
 
 export function LoadCredential(arg1:string):Promise<string>;
 
+export function MoveAsset(arg1:number,arg2:string):Promise<void>;
+
+export function MoveGroup(arg1:number,arg2:string):Promise<void>;
+
+export function PreviewSSHConfig():Promise<import_svc.PreviewResult>;
+
 export function PreviewTabbyConfig():Promise<import_svc.PreviewResult>;
 
 export function ResetAISession():Promise<void>;
 
 export function ResizeSSH(arg1:string,arg2:number,arg3:number):Promise<void>;
+
+export function RespondAuthChallenge(arg1:string,arg2:Array<string>):Promise<void>;
 
 export function RespondCommandConfirm(arg1:string,arg2:string):Promise<void>;
 
@@ -112,7 +126,7 @@ export function SelectSSHKeyFile():Promise<main.LocalSSHKeyInfo>;
 
 export function SendAIMessage(arg1:Array<ai.Message>):Promise<void>;
 
-export function SetAIProvider(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+export function SetAIProvider(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number):Promise<void>;
 
 export function SetLanguage(arg1:string):Promise<void>;
 
@@ -122,7 +136,11 @@ export function StartGitHubDeviceFlow():Promise<backup_svc.DeviceFlowInfo>;
 
 export function SwitchConversation(arg1:number):Promise<Array<main.ConversationDisplayMessage>>;
 
+export function TestSSHConnection(arg1:string,arg2:string):Promise<void>;
+
 export function UpdateAsset(arg1:asset_entity.Asset):Promise<void>;
+
+export function UpdateAssetPassword(arg1:number,arg2:string):Promise<void>;
 
 export function UpdateGroup(arg1:group_entity.Group):Promise<void>;
 

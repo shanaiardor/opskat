@@ -129,7 +129,7 @@ type ConnectConfig struct {
 	Host        string
 	Port        int
 	Username    string
-	AuthType    string // password | key
+	AuthType    string // password | key | keyboard-interactive
 	Password    string
 	Key         string   // PEM 格式私钥（直接传入）
 	PrivateKeys []string // 私钥文件路径列表
@@ -138,6 +138,11 @@ type ConnectConfig struct {
 	Rows        int
 	OnData      func(sessionID string, data []byte) // 终端输出回调
 	OnClosed    func(sessionID string)               // 关闭回调
+
+	// 进度回调（异步连接用），step: resolve/connect/auth/shell
+	OnProgress func(step, message string)
+	// 键盘交互认证回调
+	OnAuthChallenge func(prompts []string, echo []bool) ([]string, error)
 
 	// 跳板机: 已解析的链式连接配置（从叶子到根）
 	JumpHosts []JumpHostEntry
@@ -155,10 +160,17 @@ type JumpHostEntry struct {
 	Key      string
 }
 
+// emitProgress 安全调用进度回调
+func emitProgress(cfg *ConnectConfig, step, message string) {
+	if cfg.OnProgress != nil {
+		cfg.OnProgress(step, message)
+	}
+}
+
 // Connect 建立 SSH 连接并启动 PTY 会话
 func (m *Manager) Connect(cfg ConnectConfig) (string, error) {
 	// 构建目标认证方式
-	authMethods, err := buildAuthMethods(cfg.AuthType, cfg.Password, cfg.Key, cfg.PrivateKeys)
+	authMethods, err := buildAuthMethods(cfg.AuthType, cfg.Password, cfg.Key, cfg.PrivateKeys, cfg.OnAuthChallenge)
 	if err != nil {
 		return "", err
 	}
@@ -172,6 +184,8 @@ func (m *Manager) Connect(cfg ConnectConfig) (string, error) {
 
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 
+	emitProgress(&cfg, "connect", fmt.Sprintf("正在连接 %s...", addr))
+
 	// 建立连接（可能经过代理和跳板机链）
 	client, extraClosers, err := m.dial(cfg, sshConfig, addr)
 	if err != nil {
@@ -179,6 +193,8 @@ func (m *Manager) Connect(cfg ConnectConfig) (string, error) {
 	}
 
 	shared := newSharedClient(client, extraClosers)
+
+	emitProgress(&cfg, "shell", "正在启动终端...")
 
 	sessionID, err := m.createSession(shared, cfg.AssetID, cfg.Cols, cfg.Rows, cfg.OnData, cfg.OnClosed)
 	if err != nil {
@@ -286,12 +302,14 @@ func (m *Manager) dial(cfg ConnectConfig, sshConfig *ssh.ClientConfig, targetAdd
 
 	// 情况2: 有代理（无跳板机）
 	if cfg.Proxy != nil {
+		emitProgress(&cfg, "connect", fmt.Sprintf("正在通过代理 %s:%d 连接...", cfg.Proxy.Host, cfg.Proxy.Port))
 		conn, err := dialViaProxy(cfg.Proxy, targetAddr)
 		if err != nil {
 			return nil, nil, err
 		}
 		closers = append(closers, conn)
 
+		emitProgress(&cfg, "auth", "正在认证...")
 		c, chans, reqs, err := ssh.NewClientConn(conn, targetAddr, sshConfig)
 		if err != nil {
 			conn.Close()
@@ -301,6 +319,7 @@ func (m *Manager) dial(cfg ConnectConfig, sshConfig *ssh.ClientConfig, targetAdd
 	}
 
 	// 情况3: 直连
+	emitProgress(&cfg, "auth", "正在认证...")
 	client, err := ssh.Dial("tcp", targetAddr, sshConfig)
 	if err != nil {
 		return nil, nil, fmt.Errorf("SSH连接失败: %w", err)
@@ -316,7 +335,9 @@ func (m *Manager) dialViaJumpHosts(cfg ConnectConfig, targetConfig *ssh.ClientCo
 	firstJump := cfg.JumpHosts[0]
 	firstAddr := fmt.Sprintf("%s:%d", firstJump.Host, firstJump.Port)
 
-	firstAuth, err := buildAuthMethods(firstJump.AuthType, firstJump.Password, firstJump.Key, nil)
+	emitProgress(&cfg, "connect", fmt.Sprintf("正在连接跳板机 %s...", firstAddr))
+
+	firstAuth, err := buildAuthMethods(firstJump.AuthType, firstJump.Password, firstJump.Key, nil, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("跳板机认证配置失败: %w", err)
 	}
@@ -330,6 +351,7 @@ func (m *Manager) dialViaJumpHosts(cfg ConnectConfig, targetConfig *ssh.ClientCo
 	var currentClient *ssh.Client
 
 	if cfg.Proxy != nil {
+		emitProgress(&cfg, "connect", fmt.Sprintf("正在通过代理 %s:%d 连接跳板机...", cfg.Proxy.Host, cfg.Proxy.Port))
 		conn, err := dialViaProxy(cfg.Proxy, firstAddr)
 		if err != nil {
 			return nil, nil, fmt.Errorf("通过代理连接跳板机失败: %w", err)
@@ -355,7 +377,9 @@ func (m *Manager) dialViaJumpHosts(cfg ConnectConfig, targetConfig *ssh.ClientCo
 		jump := cfg.JumpHosts[i]
 		jumpAddr := fmt.Sprintf("%s:%d", jump.Host, jump.Port)
 
-		jumpAuth, err := buildAuthMethods(jump.AuthType, jump.Password, jump.Key, nil)
+		emitProgress(&cfg, "connect", fmt.Sprintf("正在连接跳板机 %s...", jumpAddr))
+
+		jumpAuth, err := buildAuthMethods(jump.AuthType, jump.Password, jump.Key, nil, nil)
 		if err != nil {
 			for _, c := range closers {
 				c.Close()
@@ -390,6 +414,8 @@ func (m *Manager) dialViaJumpHosts(cfg ConnectConfig, targetConfig *ssh.ClientCo
 	}
 
 	// 通过最后一个跳板机连接目标
+	emitProgress(&cfg, "connect", fmt.Sprintf("正在通过跳板机连接目标 %s...", targetAddr))
+
 	conn, err := currentClient.Dial("tcp", targetAddr)
 	if err != nil {
 		for _, c := range closers {
@@ -397,6 +423,8 @@ func (m *Manager) dialViaJumpHosts(cfg ConnectConfig, targetConfig *ssh.ClientCo
 		}
 		return nil, nil, fmt.Errorf("通过跳板机连接目标失败: %w", err)
 	}
+
+	emitProgress(&cfg, "auth", "正在认证...")
 
 	c, chans, reqs, err := ssh.NewClientConn(conn, targetAddr, targetConfig)
 	if err != nil {
@@ -438,12 +466,36 @@ func dialViaProxy(proxyCfg *asset_entity.ProxyConfig, targetAddr string) (net.Co
 }
 
 // buildAuthMethods 构建 SSH 认证方式
-func buildAuthMethods(authType, password, key string, privateKeyPaths []string) ([]ssh.AuthMethod, error) {
+func buildAuthMethods(authType, password, key string, privateKeyPaths []string,
+	onAuthChallenge func(prompts []string, echo []bool) ([]string, error)) ([]ssh.AuthMethod, error) {
 	var methods []ssh.AuthMethod
+
+	// keyboard-interactive 认证回调（用于 OTP/动态密码等场景）
+	kbInteractive := func() ssh.AuthMethod {
+		return ssh.KeyboardInteractive(func(user, instruction string, questions []string, echos []bool) ([]string, error) {
+			// 如果没有问题，返回空
+			if len(questions) == 0 {
+				return nil, nil
+			}
+			// 如果有回调，使用回调获取用户输入
+			if onAuthChallenge != nil {
+				return onAuthChallenge(questions, echos)
+			}
+			// 没有回调但有密码，尝试用密码回答第一个问题
+			if password != "" {
+				answers := make([]string, len(questions))
+				answers[0] = password
+				return answers, nil
+			}
+			return nil, fmt.Errorf("keyboard-interactive 认证需要用户输入")
+		})
+	}
 
 	switch authType {
 	case "password":
 		methods = append(methods, ssh.Password(password))
+		// 追加 keyboard-interactive 作为 fallback（许多服务器用 keyboard-interactive 替代 password）
+		methods = append(methods, kbInteractive())
 	case "key":
 		// 优先使用直接传入的 key
 		if key != "" {
@@ -468,6 +520,8 @@ func buildAuthMethods(authType, password, key string, privateKeyPaths []string) 
 		if len(methods) == 0 {
 			return nil, fmt.Errorf("密钥认证方式需要提供私钥")
 		}
+	case "keyboard-interactive":
+		methods = append(methods, kbInteractive())
 	default:
 		return nil, fmt.Errorf("不支持的认证方式: %s", authType)
 	}
@@ -517,6 +571,32 @@ func (m *Manager) DisconnectAll() {
 		m.sessions.Delete(key)
 		return true
 	})
+}
+
+// TestConnection 测试 SSH 连接（仅验证连通性，不创建会话）
+func (m *Manager) TestConnection(cfg ConnectConfig) error {
+	authMethods, err := buildAuthMethods(cfg.AuthType, cfg.Password, cfg.Key, cfg.PrivateKeys, cfg.OnAuthChallenge)
+	if err != nil {
+		return err
+	}
+
+	sshConfig := &ssh.ClientConfig{
+		User:            cfg.Username,
+		Auth:            authMethods,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         10 * time.Second,
+	}
+
+	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	client, closers, err := m.dial(cfg, sshConfig, addr)
+	if err != nil {
+		return err
+	}
+	client.Close()
+	for _, c := range closers {
+		c.Close()
+	}
+	return nil
 }
 
 // ActiveSessions 返回活跃会话数

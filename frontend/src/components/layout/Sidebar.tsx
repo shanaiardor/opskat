@@ -1,4 +1,4 @@
-import { Home, Settings, Cat, KeyRound, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Home, Settings, Cat, KeyRound, PanelLeftClose, PanelLeftOpen, EyeOff, Bot } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   Tooltip,
@@ -14,16 +14,18 @@ interface SidebarProps {
   onPageChange: (page: string) => void;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
+  onHideSidebar: () => void;
+  aiPanelCollapsed: boolean;
+  onToggleAIPanel: () => void;
 }
 
-export function Sidebar({ activePage, onPageChange, sidebarCollapsed, onToggleSidebar }: SidebarProps) {
+export function Sidebar({ activePage, onPageChange, sidebarCollapsed, onToggleSidebar, onHideSidebar, aiPanelCollapsed, onToggleAIPanel }: SidebarProps) {
   const { t } = useTranslation();
   const isFullscreen = useFullscreen();
 
   const navItems = [
     { id: "home", icon: Home, label: t("nav.home") },
     { id: "sshkeys", icon: KeyRound, label: t("nav.sshKeys") },
-    { id: "settings", icon: Settings, label: t("nav.settings") },
   ];
 
   return (
@@ -68,6 +70,41 @@ export function Sidebar({ activePage, onPageChange, sidebarCollapsed, onToggleSi
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              className={cn(
+                "relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors duration-150",
+                !aiPanelCollapsed
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              )}
+              onClick={onToggleAIPanel}
+            >
+              <Bot className="h-4 w-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">{t("nav.ai")}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className={cn(
+                "relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors duration-150",
+                activePage === "settings"
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              )}
+              onClick={() => onPageChange("settings")}
+            >
+              {activePage === "settings" && (
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-[calc(50%+1px)] h-4 w-1 rounded-full bg-primary" />
+              )}
+              <Settings className="h-4 w-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">{t("nav.settings")}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
               className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors duration-150"
               onClick={onToggleSidebar}
             >
@@ -79,6 +116,17 @@ export function Sidebar({ activePage, onPageChange, sidebarCollapsed, onToggleSi
             </button>
           </TooltipTrigger>
           <TooltipContent side="right">{t("panel.toggleSidebar")}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors duration-150"
+              onClick={onHideSidebar}
+            >
+              <EyeOff className="h-4 w-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">{t("panel.hideSidebar")}</TooltipContent>
         </Tooltip>
         <ModeToggle />
       </div>

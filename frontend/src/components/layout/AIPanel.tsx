@@ -68,8 +68,6 @@ export function AIPanel({ collapsed, onToggle }: AIPanelProps) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  if (collapsed) return null;
-
   const handleSend = () => {
     const text = input.trim();
     if (!text || sending) return;
@@ -85,6 +83,10 @@ export function AIPanel({ collapsed, onToggle }: AIPanelProps) {
   };
 
   return (
+    <div
+      className="relative overflow-hidden shrink-0 transition-[width] duration-200"
+      style={{ width: collapsed ? 0 : width }}
+    >
     <div
       className="relative flex h-full shrink-0 flex-col border-l border-panel-divider"
       style={{ width }}
@@ -199,6 +201,7 @@ export function AIPanel({ collapsed, onToggle }: AIPanelProps) {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }

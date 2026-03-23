@@ -18,12 +18,14 @@ type AssetRepo interface {
 	MoveToGroup(ctx context.Context, fromGroupID, toGroupID int64) error
 	DeleteByGroupID(ctx context.Context, groupID int64) error
 	FindBySSHKeyID(ctx context.Context, keyID int64) ([]*asset_entity.Asset, error)
+	UpdateSortOrder(ctx context.Context, id int64, sortOrder int) error
 }
 
 // ListOptions 列表查询选项
 type ListOptions struct {
-	Type    string
-	GroupID int64
+	Type         string
+	GroupID      int64
+	ExactGroupID bool // 精确匹配 GroupID（包括 0），用于获取未分组资产
 }
 
 var defaultAsset AssetRepo
@@ -60,7 +62,9 @@ func (r *assetRepo) List(ctx context.Context, opts ListOptions) ([]*asset_entity
 	if opts.Type != "" {
 		query = query.Where("type = ?", opts.Type)
 	}
-	if opts.GroupID > 0 {
+	if opts.ExactGroupID {
+		query = query.Where("group_id = ?", opts.GroupID)
+	} else if opts.GroupID > 0 {
 		query = query.Where("group_id = ?", opts.GroupID)
 	}
 	if err := query.Order("sort_order ASC, id ASC").Find(&assets).Error; err != nil {
@@ -92,6 +96,10 @@ func (r *assetRepo) DeleteByGroupID(ctx context.Context, groupID int64) error {
 	return db.Ctx(ctx).Model(&asset_entity.Asset{}).
 		Where("group_id = ? AND status = ?", groupID, asset_entity.StatusActive).
 		Update("status", asset_entity.StatusDeleted).Error
+}
+
+func (r *assetRepo) UpdateSortOrder(ctx context.Context, id int64, sortOrder int) error {
+	return db.Ctx(ctx).Model(&asset_entity.Asset{}).Where("id = ?", id).Update("sort_order", sortOrder).Error
 }
 
 func (r *assetRepo) FindBySSHKeyID(ctx context.Context, keyID int64) ([]*asset_entity.Asset, error) {

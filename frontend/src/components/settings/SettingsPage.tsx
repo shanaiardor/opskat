@@ -42,6 +42,9 @@ import {
   ListBackupGists,
   ImportFromGist,
   PreviewTabbyConfig,
+  ImportTabbySelected,
+  PreviewSSHConfig,
+  ImportSSHConfigSelected,
 } from "../../../wailsjs/go/main/App";
 import { backup_svc } from "../../../wailsjs/go/models";
 import { import_svc } from "../../../wailsjs/go/models";
@@ -117,6 +120,9 @@ export function SettingsPage() {
   const [model, setModel] = useState(
     localStorage.getItem("ai_model") || "gpt-4o"
   );
+  const [mcpPort, setMcpPort] = useState(
+    localStorage.getItem("mcp_port") || ""
+  );
   const [saved, setSaved] = useState(false);
 
   // 文件备份
@@ -128,10 +134,13 @@ export function SettingsPage() {
   const [importPassword, setImportPassword] = useState("");
   const [importFilePath, setImportFilePath] = useState("");
 
-  // Tabby 导入
-  const [tabbyPreview, setTabbyPreview] = useState<import_svc.PreviewResult | null>(null);
+  // 导入
+  const [importPreview, setImportPreview] = useState<import_svc.PreviewResult | null>(null);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importDialogTitle, setImportDialogTitle] = useState("");
+  const [importFn, setImportFn] = useState<((indexes: number[]) => Promise<import_svc.ImportResult>) | null>(null);
   const [tabbyLoading, setTabbyLoading] = useState(false);
+  const [sshConfigLoading, setSSHConfigLoading] = useState(false);
 
   // GitHub
   const [ghToken, setGhToken] = useState(localStorage.getItem("github_token") || "");
@@ -204,9 +213,14 @@ export function SettingsPage() {
     localStorage.setItem("ai_api_base", apiBase);
     localStorage.setItem("ai_api_key", apiKey);
     localStorage.setItem("ai_model", model);
-    await configure(providerType, apiBase, apiKey, model);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    localStorage.setItem("mcp_port", mcpPort);
+    try {
+      await configure(providerType, apiBase, apiKey, model, Number(mcpPort) || 0);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      toast.error(String(e));
+    }
   };
 
   const handleLanguageChange = (lng: string) => {
@@ -274,13 +288,33 @@ export function SettingsPage() {
     try {
       const result = await PreviewTabbyConfig();
       if (result) {
-        setTabbyPreview(result);
+        setImportPreview(result);
+        setImportDialogTitle(t("import.tabby"));
+        setImportFn(() => ImportTabbySelected);
         setImportDialogOpen(true);
       }
     } catch (e: any) {
       toast.error(e?.message || String(e));
     } finally {
       setTabbyLoading(false);
+    }
+  };
+
+  // --- SSH Config ---
+  const handlePreviewSSHConfig = async () => {
+    setSSHConfigLoading(true);
+    try {
+      const result = await PreviewSSHConfig();
+      if (result) {
+        setImportPreview(result);
+        setImportDialogTitle(t("import.sshConfig"));
+        setImportFn(() => ImportSSHConfigSelected);
+        setImportDialogOpen(true);
+      }
+    } catch (e: any) {
+      toast.error(e?.message || String(e));
+    } finally {
+      setSSHConfigLoading(false);
     }
   };
 
@@ -465,6 +499,16 @@ export function SettingsPage() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="grid gap-2">
+                      <Label>{t("settings.mcpPort")}</Label>
+                      <Input
+                        value={mcpPort}
+                        onChange={(e) => setMcpPort(e.target.value)}
+                        placeholder={t("settings.mcpPortPlaceholder")}
+                        className="[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                        type="number"
+                      />
+                    </div>
                     {localCLIs.length > 0 && (
                       <div className="text-sm text-muted-foreground">
                         {t("settings.detectedCLIs")}: {localCLIs.map((c) => `${c.name} (${c.path})`).join(", ")}
@@ -491,6 +535,18 @@ export function SettingsPage() {
                 <Button onClick={handlePreviewTabby} disabled={tabbyLoading} variant="outline" className="gap-1">
                   <Import className="h-4 w-4" />
                   {tabbyLoading ? t("import.importing") : t("import.tabby")}
+                </Button>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">SSH Config</CardTitle>
+                <CardDescription>{t("import.sshConfigDesc")}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button onClick={handlePreviewSSHConfig} disabled={sshConfigLoading} variant="outline" className="gap-1">
+                  <Import className="h-4 w-4" />
+                  {sshConfigLoading ? t("import.importing") : t("import.sshConfig")}
                 </Button>
               </CardContent>
             </Card>
@@ -776,8 +832,14 @@ export function SettingsPage() {
         </Tabs>
       </div>
 
-      {/* Tabby 导入对话框 */}
-      <ImportDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} preview={tabbyPreview} />
+      {/* 导入对话框 */}
+      <ImportDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        preview={importPreview}
+        title={importDialogTitle}
+        onImport={importFn!}
+      />
 
       {/* 导出密码对话框 */}
       <Dialog open={exportPasswordOpen} onOpenChange={setExportPasswordOpen}>

@@ -1,15 +1,20 @@
 import { create } from "zustand";
 import {
-  ConnectSSH,
+  ConnectSSHAsync,
+  CancelSSHConnect,
+  RespondAuthChallenge,
   DisconnectSSH,
   SplitSSH,
+  UpdateAssetPassword,
 } from "../../wailsjs/go/main/App";
 import { main } from "../../wailsjs/go/models";
+import { EventsOn, EventsOff } from "../../wailsjs/runtime/runtime";
 
 // Split tree types
 export type SplitNode =
   | { type: "terminal"; sessionId: string }
   | { type: "pending"; pendingId: string }
+  | { type: "connecting"; connectionId: string }
   | {
       type: "split";
       direction: "horizontal" | "vertical";
@@ -24,7 +29,7 @@ export interface TerminalPane {
 }
 
 export interface TerminalTab {
-  id: string; // tab id (first session's ID)
+  id: string; // tab id (connectionId initially, then sessionId)
   assetId: number;
   assetName: string;
   splitTree: SplitNode;
@@ -32,14 +37,39 @@ export interface TerminalTab {
   panes: Record<string, TerminalPane>;
 }
 
-// Helper: get all session IDs from a split tree (skips pending)
+export interface ConnectionLogEntry {
+  message: string;
+  timestamp: number;
+  type: "info" | "error";
+}
+
+export type ConnectionStep = "resolve" | "connect" | "auth" | "shell";
+
+export interface ConnectionState {
+  connectionId: string;
+  assetId: number;
+  assetName: string;
+  password: string;
+  logs: ConnectionLogEntry[];
+  status: "connecting" | "auth_challenge" | "connected" | "error";
+  currentStep: ConnectionStep;
+  error?: string;
+  authFailed?: boolean;
+  challenge?: {
+    challengeId: string;
+    prompts: string[];
+    echo: boolean[];
+  };
+}
+
+// Helper: get all session IDs from a split tree (skips pending/connecting)
 export function getSessionIds(node: SplitNode): string[] {
   if (node.type === "terminal") return [node.sessionId];
-  if (node.type === "pending") return [];
+  if (node.type === "pending" || node.type === "connecting") return [];
   return [...getSessionIds(node.first), ...getSessionIds(node.second)];
 }
 
-// Helper: replace a leaf node (terminal or pending) by ID
+// Helper: replace a leaf node (terminal, pending, or connecting) by ID
 function replaceNode(
   tree: SplitNode,
   id: string,
@@ -47,6 +77,8 @@ function replaceNode(
 ): SplitNode {
   if (tree.type === "terminal" && tree.sessionId === id) return replacement;
   if (tree.type === "pending" && tree.pendingId === id) return replacement;
+  if (tree.type === "connecting" && tree.connectionId === id)
+    return replacement;
   if (tree.type === "split") {
     return {
       ...tree,
@@ -61,6 +93,7 @@ function replaceNode(
 function removeNode(tree: SplitNode, id: string): SplitNode | null {
   if (tree.type === "terminal" && tree.sessionId === id) return null;
   if (tree.type === "pending" && tree.pendingId === id) return null;
+  if (tree.type === "connecting" && tree.connectionId === id) return null;
   if (tree.type === "split") {
     const newFirst = removeNode(tree.first, id);
     const newSecond = removeNode(tree.second, id);
@@ -95,6 +128,7 @@ interface TerminalState {
   activeTabId: string | null;
   assetInfoOpen: boolean;
   connectingAssetIds: Set<number>;
+  connections: Record<string, ConnectionState>;
 
   connect: (
     assetId: number,
@@ -109,6 +143,11 @@ interface TerminalState {
   markClosed: (id: string) => void;
   openAssetInfo: () => void;
   closeAssetInfo: () => void;
+
+  // Connection progress actions
+  retryConnect: (connectionId: string, password?: string) => void;
+  respondChallenge: (connectionId: string, answers: string[]) => void;
+  cancelConnect: (connectionId: string) => void;
 
   // Split pane actions
   setActivePaneId: (tabId: string, paneId: string) => void;
@@ -125,14 +164,24 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   activeTabId: null,
   assetInfoOpen: false,
   connectingAssetIds: new Set(),
+  connections: {},
 
   connect: async (assetId, assetName, password, cols, rows) => {
-    if (get().connectingAssetIds.has(assetId)) {
-      throw new Error("already connecting");
+    // 如果已有正在连接或连接失败的 tab，直接切换过去
+    const existingTab = get().tabs.find((t) => {
+      if (t.assetId !== assetId) return false;
+      const conn = get().connections[t.id];
+      return conn && (conn.status === "connecting" || conn.status === "error" || conn.status === "auth_challenge");
+    });
+    if (existingTab) {
+      set({ activeTabId: existingTab.id });
+      return existingTab.id;
     }
+
     set((state) => ({
       connectingAssetIds: new Set(state.connectingAssetIds).add(assetId),
     }));
+
     try {
       const req = new main.SSHConnectRequest({
         assetId,
@@ -141,28 +190,259 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         cols,
         rows,
       });
-      const sessionId = await ConnectSSH(req);
 
+      // 异步连接，立即返回 connectionId
+      const connectionId = await ConnectSSHAsync(req);
+
+      // 立即创建 Tab（"connecting" 节点）
       const tab: TerminalTab = {
-        id: sessionId,
+        id: connectionId,
         assetId,
         assetName,
-        splitTree: { type: "terminal", sessionId },
-        activePaneId: sessionId,
-        panes: { [sessionId]: { sessionId, connected: true } },
+        splitTree: { type: "connecting", connectionId },
+        activePaneId: connectionId,
+        panes: {},
       };
+
+      const connState: ConnectionState = {
+        connectionId,
+        assetId,
+        assetName,
+        password,
+        logs: [],
+        status: "connecting",
+        currentStep: "resolve",
+      };
+
       set((state) => ({
         tabs: [...state.tabs, tab],
-        activeTabId: sessionId,
+        activeTabId: connectionId,
+        connections: { ...state.connections, [connectionId]: connState },
       }));
-      return sessionId;
-    } finally {
+
+      // 监听连接进度事件
+      const eventName = `ssh:connect:${connectionId}`;
+      EventsOn(eventName, (event: {
+        type: string;
+        step?: string;
+        message?: string;
+        sessionId?: string;
+        error?: string;
+        authFailed?: boolean;
+        challengeId?: string;
+        prompts?: string[];
+        echo?: boolean[];
+      }) => {
+        const state = get();
+        const conn = state.connections[connectionId];
+        if (!conn) return;
+
+        switch (event.type) {
+          case "progress":
+            set((s) => ({
+              connections: {
+                ...s.connections,
+                [connectionId]: {
+                  ...s.connections[connectionId],
+                  currentStep: (event.step as ConnectionStep) || s.connections[connectionId].currentStep,
+                  logs: [
+                    ...s.connections[connectionId].logs,
+                    {
+                      message: event.message || "",
+                      timestamp: Date.now(),
+                      type: "info" as const,
+                    },
+                  ],
+                },
+              },
+            }));
+            break;
+
+          case "connected": {
+            const sessionId = event.sessionId!;
+            // 替换 connecting 节点为 terminal 节点
+            set((s) => {
+              const tab = s.tabs.find((t) => t.id === connectionId);
+              if (!tab) return s;
+
+              const newTree = replaceNode(tab.splitTree, connectionId, {
+                type: "terminal",
+                sessionId,
+              });
+
+              const newTabs = s.tabs.map((t) =>
+                t.id === connectionId
+                  ? {
+                      ...t,
+                      id: sessionId,
+                      splitTree: newTree,
+                      activePaneId: sessionId,
+                      panes: { [sessionId]: { sessionId, connected: true } },
+                    }
+                  : t
+              );
+
+              const newConnections = { ...s.connections };
+              delete newConnections[connectionId];
+
+              return {
+                tabs: newTabs,
+                activeTabId:
+                  s.activeTabId === connectionId ? sessionId : s.activeTabId,
+                connections: newConnections,
+              };
+            });
+
+            // 清理事件监听
+            EventsOff(eventName);
+
+            // 清理 connectingAssetIds
+            set((s) => {
+              const next = new Set(s.connectingAssetIds);
+              next.delete(assetId);
+              return { connectingAssetIds: next };
+            });
+            break;
+          }
+
+          case "error":
+            set((s) => ({
+              connections: {
+                ...s.connections,
+                [connectionId]: {
+                  ...s.connections[connectionId],
+                  status: "error",
+                  error: event.error,
+                  authFailed: event.authFailed,
+                  logs: [
+                    ...s.connections[connectionId].logs,
+                    {
+                      message: event.error || "连接失败",
+                      timestamp: Date.now(),
+                      type: "error" as const,
+                    },
+                  ],
+                },
+              },
+            }));
+
+            // 清理 connectingAssetIds
+            set((s) => {
+              const next = new Set(s.connectingAssetIds);
+              next.delete(assetId);
+              return { connectingAssetIds: next };
+            });
+            break;
+
+          case "auth_challenge":
+            set((s) => ({
+              connections: {
+                ...s.connections,
+                [connectionId]: {
+                  ...s.connections[connectionId],
+                  status: "auth_challenge",
+                  challenge: {
+                    challengeId: event.challengeId!,
+                    prompts: event.prompts || [],
+                    echo: event.echo || [],
+                  },
+                  logs: [
+                    ...s.connections[connectionId].logs,
+                    {
+                      message: "等待用户输入认证信息...",
+                      timestamp: Date.now(),
+                      type: "info" as const,
+                    },
+                  ],
+                },
+              },
+            }));
+            break;
+        }
+      });
+
+      return connectionId;
+    } catch (e) {
+      // ConnectSSHAsync 本身的校验错误（资产不存在等）
       set((state) => {
         const next = new Set(state.connectingAssetIds);
         next.delete(assetId);
         return { connectingAssetIds: next };
       });
+      throw e;
     }
+  },
+
+  retryConnect: (connectionId, password) => {
+    const conn = get().connections[connectionId];
+    if (!conn) return;
+
+    // 清理旧的事件监听和连接状态
+    EventsOff(`ssh:connect:${connectionId}`);
+
+    // 移除旧 tab
+    set((s) => {
+      const newConnections = { ...s.connections };
+      delete newConnections[connectionId];
+      return {
+        tabs: s.tabs.filter((t) => t.id !== connectionId),
+        connections: newConnections,
+        activeTabId:
+          s.activeTabId === connectionId ? null : s.activeTabId,
+      };
+    });
+
+    // 重新连接
+    const newPassword = password !== undefined ? password : conn.password;
+    get().connect(conn.assetId, conn.assetName, newPassword, 80, 24);
+
+    // 如果提供了新密码，保存到资产
+    if (password && password !== conn.password) {
+      UpdateAssetPassword(conn.assetId, password).catch(() => {});
+    }
+  },
+
+  respondChallenge: (connectionId, answers) => {
+    const conn = get().connections[connectionId];
+    if (!conn?.challenge) return;
+
+    RespondAuthChallenge(conn.challenge.challengeId, answers);
+
+    // 恢复连接中状态
+    set((s) => ({
+      connections: {
+        ...s.connections,
+        [connectionId]: {
+          ...s.connections[connectionId],
+          status: "connecting",
+          challenge: undefined,
+        },
+      },
+    }));
+  },
+
+  cancelConnect: (connectionId) => {
+    const conn = get().connections[connectionId];
+    if (!conn) return;
+
+    CancelSSHConnect(connectionId);
+    EventsOff(`ssh:connect:${connectionId}`);
+
+    // 清理 connectingAssetIds
+    set((s) => {
+      const next = new Set(s.connectingAssetIds);
+      next.delete(conn.assetId);
+      return { connectingAssetIds: next };
+    });
+
+    // 移除 tab 和连接状态
+    get().removeTab(connectionId);
+
+    set((s) => {
+      const newConnections = { ...s.connections };
+      delete newConnections[connectionId];
+      return { connections: newConnections };
+    });
   },
 
   disconnect: (sessionId) => {
@@ -196,6 +476,20 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   removeTab: (id) => {
     const tab = get().tabs.find((t) => t.id === id);
     if (tab) {
+      // 如果是 connecting 状态，取消连接
+      const conn = get().connections[id];
+      if (conn) {
+        CancelSSHConnect(id);
+        EventsOff(`ssh:connect:${id}`);
+        set((s) => {
+          const next = new Set(s.connectingAssetIds);
+          next.delete(conn.assetId);
+          const newConnections = { ...s.connections };
+          delete newConnections[id];
+          return { connectingAssetIds: next, connections: newConnections };
+        });
+      }
+
       for (const pane of Object.values(tab.panes)) {
         if (pane.connected) {
           DisconnectSSH(pane.sessionId);

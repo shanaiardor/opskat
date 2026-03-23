@@ -55,7 +55,8 @@ interface AIState {
     providerType: string,
     apiBase: string,
     apiKey: string,
-    model: string
+    model: string,
+    mcpPort?: number
   ) => Promise<void>;
   send: (content: string) => Promise<void>;
   detectCLIs: () => Promise<void>;
@@ -126,8 +127,8 @@ export const useAIStore = create<AIState>((set, get) => ({
   sending: false,
   localCLIs: [],
 
-  configure: async (providerType, apiBase, apiKey, model) => {
-    await SetAIProvider(providerType, apiBase, apiKey, model);
+  configure: async (providerType, apiBase, apiKey, model, mcpPort) => {
+    await SetAIProvider(providerType, apiBase, apiKey, model, mcpPort || 0);
     set({ configured: true });
   },
 
@@ -492,9 +493,10 @@ if (providerType) {
   const apiBase = localStorage.getItem("ai_api_base") || "";
   const apiKey = localStorage.getItem("ai_api_key") || "";
   const model = localStorage.getItem("ai_model") || "";
+  const mcpPort = Number(localStorage.getItem("mcp_port") || "0");
   useAIStore
     .getState()
-    .configure(providerType, apiBase, apiKey, model)
+    .configure(providerType, apiBase, apiKey, model, mcpPort)
     .then(() => {
       // 配置完成后加载会话列表
       useAIStore.getState().fetchConversations();

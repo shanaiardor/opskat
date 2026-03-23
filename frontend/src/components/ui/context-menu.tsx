@@ -95,9 +95,26 @@ function ContextMenuContent({
   className,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Content>) {
+  const contentRef = React.useRef<HTMLDivElement>(null)
+
+  // Block pointer events briefly after mount to prevent right-click release
+  // from accidentally triggering menu items. CSS animation approach doesn't
+  // work here because Tailwind's animate-in overrides it.
+  React.useEffect(() => {
+    const el = contentRef.current
+    if (el) {
+      el.style.pointerEvents = "none"
+      const timer = setTimeout(() => {
+        if (el) el.style.pointerEvents = ""
+      }, 300)
+      return () => clearTimeout(timer)
+    }
+  }, [])
+
   return (
     <ContextMenuPrimitive.Portal>
       <ContextMenuPrimitive.Content
+        ref={contentRef}
         data-slot="context-menu-content"
         className={cn(
           "z-50 max-h-(--radix-context-menu-content-available-height) min-w-[8rem] origin-(--radix-context-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",

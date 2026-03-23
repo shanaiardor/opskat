@@ -288,6 +288,7 @@ func (s *CodexAppServer) handleNotification(method string, params json.RawMessag
 
 	// ── MCP 工具权限确认（只处理一种格式，避免弹两次）──
 	case "item/tool/requestUserInput":
+		log.Printf("[MCP] requestUserInput received, forwarding to chat")
 		s.handleUserInputRequest(params, onEvent)
 
 	case "codex/event/request_user_input":
@@ -421,10 +422,12 @@ func (s *CodexAppServer) handleUserInputRequest(params json.RawMessage, onEvent 
 		Questions []codexUserInputQuestion `json:"questions"`
 	}
 	if err := json.Unmarshal(params, &req); err != nil || len(req.Questions) == 0 {
+		log.Printf("[MCP] requestUserInput parse failed or no questions: %v", err)
 		return
 	}
 
 	q := req.Questions[0]
+	log.Printf("[MCP] tool_confirm emitting: toolName=%s confirmId=%s", q.Header, q.ID)
 
 	// 发送 tool_confirm 事件到会话流，前端内联显示
 	onEvent(StreamEvent{

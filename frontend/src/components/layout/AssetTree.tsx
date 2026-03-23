@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFullscreen } from "@/hooks/useFullscreen";
 import {
   ChevronRight,
@@ -9,6 +9,10 @@ import {
   FolderPlus,
   Search,
   Loader2,
+  Eye,
+  ArrowUp,
+  ArrowDown,
+  ChevronsUp,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -28,15 +32,19 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { getIconComponent } from "@/components/asset/IconPicker";
 import { useAssetStore } from "@/stores/assetStore";
 import { useTerminalStore } from "@/stores/terminalStore";
+import { MoveAsset, MoveGroup } from "../../../wailsjs/go/main/App";
 import { asset_entity, group_entity } from "../../../wailsjs/go/models";
 
 interface AssetTreeProps {
   collapsed: boolean;
+  sidebarHidden?: boolean;
+  onShowSidebar?: () => void;
   onAddAsset: (groupId?: number) => void;
   onAddGroup: () => void;
   onEditGroup: (group: group_entity.Group) => void;
@@ -49,6 +57,8 @@ interface AssetTreeProps {
 
 export function AssetTree({
   collapsed,
+  sidebarHidden,
+  onShowSidebar,
   onAddAsset,
   onAddGroup,
   onEditGroup,
@@ -60,7 +70,7 @@ export function AssetTree({
 }: AssetTreeProps) {
   const { t } = useTranslation();
   const isFullscreen = useFullscreen();
-  const { assets, groups, selectedAssetId, fetchAssets, fetchGroups, deleteAsset, deleteGroup } =
+  const { assets, groups, selectedAssetId, fetchAssets, fetchGroups, deleteAsset, deleteGroup, refresh } =
     useAssetStore();
   const { tabs, connectingAssetIds } = useTerminalStore();
   const [filter, setFilter] = useState("");
@@ -115,6 +125,24 @@ export function AssetTree({
     }
   };
 
+  const handleMoveAsset = async (id: number, direction: string) => {
+    try {
+      await MoveAsset(id, direction);
+      await refresh();
+    } catch (e) {
+      toast.error(String(e));
+    }
+  };
+
+  const handleMoveGroup = async (id: number, direction: string) => {
+    try {
+      await MoveGroup(id, direction);
+      await refresh();
+    } catch (e) {
+      toast.error(String(e));
+    }
+  };
+
   const handleConfirmDelete = async (deleteAssets: boolean) => {
     if (!deleteConfirm) return;
     try {
@@ -126,7 +154,7 @@ export function AssetTree({
   };
 
   return (
-    <div className="flex h-full w-56 flex-col border-r border-panel-divider bg-sidebar">
+    <div className="flex h-full w-full flex-col border-r border-panel-divider bg-sidebar">
       {/* Drag region for frameless window */}
       <div
         className={`${isFullscreen ? "h-2" : "h-10"} w-full shrink-0`}
@@ -134,9 +162,22 @@ export function AssetTree({
       />
       <div className="flex flex-col gap-1.5 px-3 pb-2 border-b border-panel-divider">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            {t("asset.title")}
-          </span>
+          <div className="flex items-center gap-1">
+            {sidebarHidden && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={onShowSidebar}
+                title={t("panel.showSidebar")}
+              >
+                <Eye className="h-3.5 w-3.5" />
+              </Button>
+            )}
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {t("asset.title")}
+            </span>
+          </div>
           <div className="flex gap-0.5">
             <Button
               variant="ghost"
@@ -189,7 +230,9 @@ export function AssetTree({
               onEditGroup={onEditGroup}
               onGroupDetail={onGroupDetail}
               onDeleteGroup={handleDeleteGroup}
-              onDeleteAsset={(asset) => setDeleteAssetConfirm(asset)}
+              onDeleteAsset={(asset: asset_entity.Asset) => setDeleteAssetConfirm(asset)}
+              onMoveAsset={handleMoveAsset}
+              onMoveGroup={handleMoveGroup}
               depth={0}
               t={t}
             />
@@ -218,6 +261,8 @@ export function AssetTree({
               onGroupDetail={onGroupDetail}
               onDeleteGroup={handleDeleteGroup}
               onDeleteAsset={(asset) => setDeleteAssetConfirm(asset)}
+              onMoveAsset={handleMoveAsset}
+              onMoveGroup={handleMoveGroup}
               depth={0}
               t={t}
             />
@@ -303,6 +348,8 @@ function GroupItem({
   onGroupDetail,
   onDeleteGroup,
   onDeleteAsset,
+  onMoveAsset,
+  onMoveGroup,
   depth,
   t,
 }: {
@@ -323,10 +370,13 @@ function GroupItem({
   onGroupDetail: (group: group_entity.Group) => void;
   onDeleteGroup: (id: number) => void;
   onDeleteAsset: (asset: asset_entity.Asset) => void;
+  onMoveAsset: (id: number, direction: string) => void;
+  onMoveGroup: (id: number, direction: string) => void;
   depth: number;
   t: (key: string) => string;
 }) {
   const [expanded, setExpanded] = useState(true);
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const children = group.ID > 0 ? childGroups(group.ID) : [];
   const totalCount = countAssetsInGroup(group.ID);
   const GroupIcon = group.Icon ? getIconComponent(group.Icon) : Folder;
@@ -362,6 +412,20 @@ function GroupItem({
             <ContextMenuItem onClick={() => onEditGroup(group)}>
               {t("action.edit")}
             </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={() => onMoveGroup(group.ID, "up")}>
+              <ArrowUp className="h-3.5 w-3.5 mr-1.5" />
+              {t("asset.moveUp")}
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => onMoveGroup(group.ID, "down")}>
+              <ArrowDown className="h-3.5 w-3.5 mr-1.5" />
+              {t("asset.moveDown")}
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => onMoveGroup(group.ID, "top")}>
+              <ChevronsUp className="h-3.5 w-3.5 mr-1.5" />
+              {t("asset.moveTop")}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
             <ContextMenuItem
               className="text-destructive"
               onClick={() => onDeleteGroup(group.ID)}
@@ -398,6 +462,8 @@ function GroupItem({
               onGroupDetail={onGroupDetail}
               onDeleteGroup={onDeleteGroup}
               onDeleteAsset={onDeleteAsset}
+              onMoveAsset={onMoveAsset}
+              onMoveGroup={onMoveGroup}
               depth={depth + 1}
               t={t}
             />
@@ -415,8 +481,20 @@ function GroupItem({
                         : "hover:bg-sidebar-accent"
                     }`}
                     style={{ paddingLeft: `${20 + (depth + 1) * 12}px` }}
-                    onClick={() => onSelectAsset(asset)}
-                    onDoubleClick={() => !isConnecting && onConnectAsset(asset)}
+                    onClick={() => {
+                      if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
+                      clickTimerRef.current = setTimeout(() => {
+                        clickTimerRef.current = null;
+                        onSelectAsset(asset);
+                      }, 200);
+                    }}
+                    onDoubleClick={() => {
+                      if (clickTimerRef.current) {
+                        clearTimeout(clickTimerRef.current);
+                        clickTimerRef.current = null;
+                      }
+                      if (!isConnecting) onConnectAsset(asset);
+                    }}
                   >
                     {isConnecting ? (
                       <Loader2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground animate-spin" />
@@ -442,6 +520,20 @@ function GroupItem({
                   <ContextMenuItem onClick={() => onCopyAsset(asset)}>
                     {t("action.copy")}
                   </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onClick={() => onMoveAsset(asset.ID, "up")}>
+                    <ArrowUp className="h-3.5 w-3.5 mr-1.5" />
+                    {t("asset.moveUp")}
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => onMoveAsset(asset.ID, "down")}>
+                    <ArrowDown className="h-3.5 w-3.5 mr-1.5" />
+                    {t("asset.moveDown")}
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => onMoveAsset(asset.ID, "top")}>
+                    <ChevronsUp className="h-3.5 w-3.5 mr-1.5" />
+                    {t("asset.moveTop")}
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
                   <ContextMenuItem
                     className="text-destructive"
                     onClick={() => onDeleteAsset(asset)}

@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ImportTabbySelected } from "../../../wailsjs/go/main/App";
 import { import_svc } from "../../../wailsjs/go/models";
 import { useAssetStore } from "@/stores/assetStore";
 
@@ -19,9 +18,11 @@ interface ImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   preview: import_svc.PreviewResult | null;
+  title: string;
+  onImport: (selectedIndexes: number[]) => Promise<import_svc.ImportResult>;
 }
 
-export function ImportDialog({ open, onOpenChange, preview }: ImportDialogProps) {
+export function ImportDialog({ open, onOpenChange, preview, title, onImport }: ImportDialogProps) {
   const { t } = useTranslation();
   const { refresh } = useAssetStore();
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -32,14 +33,14 @@ export function ImportDialog({ open, onOpenChange, preview }: ImportDialogProps)
   useMemo(() => {
     if (preview) {
       const defaultSelected = new Set<number>();
-      for (const item of preview.items) {
+      for (const item of (preview.items || [])) {
         if (!item.exists) {
           defaultSelected.add(item.index);
         }
       }
       setSelected(defaultSelected);
       // 默认展开所有分组
-      const groups = new Set(["__ungrouped__", ...preview.groups.map((g) => g.id)]);
+      const groups = new Set(["__ungrouped__", ...(preview.groups || []).map((g) => g.id)]);
       setExpandedGroups(groups);
     }
   }, [preview]);
@@ -48,12 +49,12 @@ export function ImportDialog({ open, onOpenChange, preview }: ImportDialogProps)
 
   // 按分组归类
   const groupMap = new Map<string, string>();
-  for (const g of preview.groups) {
+  for (const g of (preview.groups || [])) {
     groupMap.set(g.id, g.name);
   }
 
   const groupedItems = new Map<string, import_svc.PreviewItem[]>();
-  for (const item of preview.items) {
+  for (const item of (preview.items || [])) {
     const gid = item.groupId || "__ungrouped__";
     if (!groupedItems.has(gid)) groupedItems.set(gid, []);
     groupedItems.get(gid)!.push(item);
@@ -94,7 +95,7 @@ export function ImportDialog({ open, onOpenChange, preview }: ImportDialogProps)
   };
 
   const selectAll = () => {
-    setSelected(new Set(preview.items.map((i) => i.index)));
+    setSelected(new Set((preview.items || []).map((i) => i.index)));
   };
 
   const selectNone = () => {
@@ -105,7 +106,7 @@ export function ImportDialog({ open, onOpenChange, preview }: ImportDialogProps)
     if (selected.size === 0) return;
     setImporting(true);
     try {
-      const result = await ImportTabbySelected(Array.from(selected));
+      const result = await onImport(Array.from(selected));
       toast.success(
         t("import.result", {
           total: result.total,
@@ -124,7 +125,7 @@ export function ImportDialog({ open, onOpenChange, preview }: ImportDialogProps)
   };
 
   // 排序：有分组的在前
-  const groupOrder = [...preview.groups.map((g) => g.id)];
+  const groupOrder = [...(preview.groups || []).map((g) => g.id)];
   if (groupedItems.has("__ungrouped__")) {
     groupOrder.push("__ungrouped__");
   }
@@ -133,14 +134,14 @@ export function ImportDialog({ open, onOpenChange, preview }: ImportDialogProps)
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{t("import.tabby")}</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>
             {t("import.selectedCount", {
               selected: selected.size,
-              total: preview.items.length,
+              total: (preview.items || []).length,
             })}
           </span>
           <span className="ml-auto flex gap-2">

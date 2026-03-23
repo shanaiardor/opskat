@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { X, TerminalSquare, Cat } from "lucide-react";
+import { X, TerminalSquare, Cat, Settings, KeyRound } from "lucide-react";
 import { useFullscreen } from "@/hooks/useFullscreen";
 import { AssetDetail } from "@/components/asset/AssetDetail";
 import { GroupDetail } from "@/components/asset/GroupDetail";
@@ -11,49 +11,65 @@ import { useTerminalStore } from "@/stores/terminalStore";
 import { cn } from "@/lib/utils";
 import { asset_entity, group_entity } from "../../../wailsjs/go/models";
 
+const pageTabMeta: Record<string, { icon: typeof Settings; labelKey: string }> = {
+  settings: { icon: Settings, labelKey: "nav.settings" },
+  sshkeys: { icon: KeyRound, labelKey: "nav.sshKeys" },
+};
+
 interface MainPanelProps {
-  activePage: string;
+  activePage?: string; // kept for compatibility
   selectedAsset: asset_entity.Asset | null;
   selectedGroup: group_entity.Group | null;
   onEditAsset: (asset: asset_entity.Asset) => void;
   onDeleteAsset: (id: number) => void;
   onConnectAsset: (asset: asset_entity.Asset) => void;
+  openPageTabs: string[];
+  activePageTab: string | null;
+  onActivatePageTab: (page: string) => void;
+  onClosePageTab: (page: string) => void;
+  onTerminalTabClick: () => void;
 }
 
 export function MainPanel({
-  activePage,
+  activePage: _activePage,
   selectedAsset,
   selectedGroup,
   onEditAsset,
   onDeleteAsset,
   onConnectAsset,
+  openPageTabs,
+  activePageTab,
+  onActivatePageTab,
+  onClosePageTab,
+  onTerminalTabClick,
 }: MainPanelProps) {
   const { t } = useTranslation();
   const isFullscreen = useFullscreen();
   const { tabs, activeTabId, assetInfoOpen, setActiveTab, removeTab, closeAssetInfo, openAssetInfo, connectingAssetIds } = useTerminalStore();
 
-  const dragRegion = (
-    <div
-      className={`${isFullscreen ? "h-2" : "h-10"} w-full shrink-0`}
-      style={{ "--wails-draggable": "drag" } as React.CSSProperties}
-    />
-  );
+  const noTabStyle = { "--wails-draggable": "no-drag" } as React.CSSProperties;
 
-  const isHome = activePage === "home";
+  const isHome = !activePageTab;
   const showTerminal = isHome && activeTabId && tabs.some((tab) => tab.id === activeTabId);
   const showAssetInfo = isHome && !showTerminal && assetInfoOpen && selectedAsset;
   const showGroupInfo = isHome && !showTerminal && !showAssetInfo && assetInfoOpen && selectedGroup;
+  const hasTabs = assetInfoOpen || tabs.length > 0 || openPageTabs.length > 0;
 
   return (
     <div className="flex flex-1 flex-col min-w-0">
-      {/* Drag region for frameless window */}
-      {dragRegion}
-
-      {/* Tab bar — always rendered so terminals stay mounted */}
-      {(assetInfoOpen || tabs.length > 0) && (
+      {/* When no tabs, show standalone drag region */}
+      {!hasTabs && (
         <div
-          className="flex items-center border-b overflow-x-auto bg-background"
-          style={{ display: isHome ? undefined : "none" }}
+          className={`${isFullscreen ? "h-2" : "h-10"} w-full shrink-0`}
+          style={{ "--wails-draggable": "drag" } as React.CSSProperties}
+        />
+      )}
+
+      {/* Tab bar with integrated drag region */}
+      {hasTabs && (
+        <div
+          className={`flex items-center border-b overflow-x-auto bg-background ${isFullscreen ? "pt-2" : "pt-10"}`}
+          style={{ "--wails-draggable": "drag" } as React.CSSProperties}
         >
           {assetInfoOpen && selectedGroup && !selectedAsset && (
             <div
@@ -63,7 +79,8 @@ export function MainPanel({
                   ? "text-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
               )}
-              onClick={() => openAssetInfo()}
+              style={noTabStyle}
+              onClick={() => { openAssetInfo(); onTerminalTabClick(); }}
             >
               {selectedGroup.Name}
               <button
@@ -88,7 +105,8 @@ export function MainPanel({
                   ? "text-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
               )}
-              onClick={() => openAssetInfo()}
+              style={noTabStyle}
+              onClick={() => { openAssetInfo(); onTerminalTabClick(); }}
             >
               {selectedAsset.Name}
               <button
@@ -106,19 +124,22 @@ export function MainPanel({
             </div>
           )}
           {tabs.map((tab) => {
-            const allDisconnected = Object.values(tab.panes).every(
+            const paneValues = Object.values(tab.panes);
+            const allDisconnected = paneValues.length > 0 && paneValues.every(
               (p) => !p.connected
             );
+            const isActive = isHome && activeTabId === tab.id;
             return (
               <div
                 key={tab.id}
                 className={cn(
                   "relative flex items-center gap-1.5 px-3 py-2 text-sm shrink-0 cursor-pointer transition-colors duration-150",
-                  activeTabId === tab.id
+                  isActive
                     ? "text-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                 )}
-                onClick={() => setActiveTab(tab.id)}
+                style={noTabStyle}
+                onClick={() => { setActiveTab(tab.id); onTerminalTabClick(); }}
               >
                 <TerminalSquare className="h-3.5 w-3.5" />
                 <span className="max-w-24 truncate">{tab.assetName}</span>
@@ -134,7 +155,40 @@ export function MainPanel({
                 >
                   <X className="h-3 w-3" />
                 </button>
-                {activeTabId === tab.id && (
+                {isActive && (
+                  <span className="absolute bottom-0 left-1 right-1 h-0.5 rounded-full bg-primary" />
+                )}
+              </div>
+            );
+          })}
+          {openPageTabs.map((pageId) => {
+            const meta = pageTabMeta[pageId];
+            if (!meta) return null;
+            const Icon = meta.icon;
+            return (
+              <div
+                key={pageId}
+                className={cn(
+                  "relative flex items-center gap-1.5 px-3 py-2 text-sm shrink-0 cursor-pointer transition-colors duration-150",
+                  activePageTab === pageId
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                )}
+                style={noTabStyle}
+                onClick={() => onActivatePageTab(pageId)}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                <span>{t(meta.labelKey)}</span>
+                <button
+                  className="ml-1.5 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors duration-150"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClosePageTab(pageId);
+                  }}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+                {activePageTab === pageId && (
                   <span className="absolute bottom-0 left-1 right-1 h-0.5 rounded-full bg-primary" />
                 )}
               </div>
@@ -215,15 +269,13 @@ export function MainPanel({
           )}
         </div>
 
-        {/* Settings page */}
-        {activePage === "settings" && (
+        {/* Page tabs content */}
+        {activePageTab === "settings" && (
           <div className="absolute inset-0 bg-background">
             <SettingsPage />
           </div>
         )}
-
-        {/* SSH Keys page */}
-        {activePage === "sshkeys" && (
+        {activePageTab === "sshkeys" && (
           <div className="absolute inset-0 bg-background flex flex-col">
             <div className="px-4 py-3 border-b">
               <h2 className="font-semibold">{t("nav.sshKeys")}</h2>

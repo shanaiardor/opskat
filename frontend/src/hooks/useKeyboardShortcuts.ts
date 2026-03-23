@@ -1,12 +1,29 @@
 import { useEffect } from "react";
 import { useTerminalStore } from "@/stores/terminalStore";
 import { useShortcutStore, matchShortcut } from "@/stores/shortcutStore";
+
 interface ShortcutHandlers {
   onToggleAIPanel: () => void;
   onToggleSidebar: () => void;
+  onPageChange: (page: string) => void;
+  onClosePageTab: (page: string) => void;
+  openPageTabs: string[];
+  activePageTab: string | null;
 }
 
-export function useKeyboardShortcuts({ onToggleAIPanel, onToggleSidebar }: ShortcutHandlers) {
+// Virtual tab id: null = asset info, "page:xxx" = page tab, otherwise terminal tab id
+type VirtualTabId = string | null;
+
+const PAGE_PREFIX = "page:";
+
+export function useKeyboardShortcuts({
+  onToggleAIPanel,
+  onToggleSidebar,
+  onPageChange,
+  onClosePageTab,
+  openPageTabs,
+  activePageTab,
+}: ShortcutHandlers) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const { shortcuts, isRecording } = useShortcutStore.getState();
@@ -33,19 +50,35 @@ export function useKeyboardShortcuts({ onToggleAIPanel, onToggleSidebar }: Short
       const { tabs, activeTabId, assetInfoOpen, setActiveTab, openAssetInfo, closeAssetInfo, splitPane, closePane } =
         useTerminalStore.getState();
 
-      // Build a virtual tab list: [asset info (if open), ...terminal tabs]
-      // Asset info tab is represented as null, terminal tabs by their id
-      const allTabIds: (string | null)[] = [];
+      // Build virtual tab list matching visual tab bar order:
+      // [asset info (if open), ...terminal tabs, ...page tabs]
+      const allTabIds: VirtualTabId[] = [];
       if (assetInfoOpen) allTabIds.push(null);
       for (const tab of tabs) allTabIds.push(tab.id);
+      for (const pageId of openPageTabs) allTabIds.push(PAGE_PREFIX + pageId);
 
-      // Current active: null means asset info is showing
-      const currentId = activeTabId ?? (assetInfoOpen ? null : undefined);
+      // Determine current active virtual tab id
+      let currentId: VirtualTabId | undefined;
+      if (activePageTab) {
+        currentId = PAGE_PREFIX + activePageTab;
+      } else if (activeTabId) {
+        currentId = activeTabId;
+      } else if (assetInfoOpen) {
+        currentId = null;
+      } else {
+        currentId = undefined;
+      }
 
-      const switchTo = (id: string | null) => {
+      const switchTo = (id: VirtualTabId) => {
         if (id === null) {
+          // Asset info tab
+          onPageChange("home");
           openAssetInfo();
+        } else if (id.startsWith(PAGE_PREFIX)) {
+          onPageChange(id.slice(PAGE_PREFIX.length));
         } else {
+          // Terminal tab
+          onPageChange("home");
           setActiveTab(id);
         }
       };
@@ -62,6 +95,11 @@ export function useKeyboardShortcuts({ onToggleAIPanel, onToggleSidebar }: Short
 
       switch (action) {
         case "tab.close": {
+          // Close page tab
+          if (activePageTab) {
+            onClosePageTab(activePageTab);
+            break;
+          }
           // Close asset info tab if it's currently active
           if (currentId === null && assetInfoOpen) {
             closeAssetInfo();
@@ -89,12 +127,12 @@ export function useKeyboardShortcuts({ onToggleAIPanel, onToggleSidebar }: Short
           break;
         }
         case "split.vertical": {
-          if (!activeTabId) break;
+          if (!activeTabId || activePageTab) break;
           splitPane(activeTabId, "vertical");
           break;
         }
         case "split.horizontal": {
-          if (!activeTabId) break;
+          if (!activeTabId || activePageTab) break;
           splitPane(activeTabId, "horizontal");
           break;
         }
@@ -104,10 +142,19 @@ export function useKeyboardShortcuts({ onToggleAIPanel, onToggleSidebar }: Short
         case "panel.sidebar":
           onToggleSidebar();
           break;
+        case "page.home":
+          onPageChange("home");
+          break;
+        case "page.settings":
+          onPageChange("settings");
+          break;
+        case "page.sshkeys":
+          onPageChange("sshkeys");
+          break;
       }
     };
 
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [onToggleAIPanel, onToggleSidebar]);
+  }, [onToggleAIPanel, onToggleSidebar, onPageChange, onClosePageTab, openPageTabs, activePageTab]);
 }

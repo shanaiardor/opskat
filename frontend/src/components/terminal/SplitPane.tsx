@@ -1,6 +1,7 @@
 import { useRef, useCallback, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Terminal } from "./Terminal";
+import { ConnectionProgress } from "./ConnectionProgress";
 import { useTerminalStore, type SplitNode } from "@/stores/terminalStore";
 
 interface SplitPaneProps {
@@ -45,6 +46,10 @@ export function SplitPane({
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
+  }
+
+  if (node.type === "connecting") {
+    return <ConnectionProgress connectionId={node.connectionId} />;
   }
 
   return (

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Plus, Trash2, ChevronDown, ChevronRight, Eye, EyeOff, FolderOpen, Loader2, Folder, Server } from "lucide-react";
+import { Plus, Trash2, ChevronDown, ChevronRight, Eye, EyeOff, FolderOpen, Loader2, Folder, Server, PlugZap } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -30,6 +30,7 @@ import {
   ListSSHKeys,
   ListLocalSSHKeys,
   SelectSSHKeyFile,
+  TestSSHConnection,
 } from "../../../wailsjs/go/main/App";
 import { main } from "../../../wailsjs/go/models";
 
@@ -89,6 +90,7 @@ export function AssetForm({
   const [authType, setAuthType] = useState("password");
   const [icon, setIcon] = useState("server");
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
 
   // Connection type
   const [connectionType, setConnectionType] = useState<"direct" | "jumphost" | "proxy">("direct");
@@ -279,6 +281,33 @@ export function AssetForm({
     setShowAdvanced(false);
   };
 
+  const handleTestConnection = async () => {
+    const sshConfig: SSHConfig = {
+      host,
+      port,
+      username,
+      auth_type: authType,
+    };
+    if (authType === "key") {
+      sshConfig.key_source = keySource;
+      if (keySource === "managed" && keyId > 0) sshConfig.key_id = keyId;
+      if (keySource === "file" && selectedKeyPaths.length > 0) sshConfig.private_keys = selectedKeyPaths;
+    }
+    if (connectionType === "jumphost" && jumpHostId > 0) sshConfig.jump_host_id = jumpHostId;
+    if (connectionType === "proxy" && proxyHost) {
+      sshConfig.proxy = { type: proxyType, host: proxyHost, port: proxyPort, username: proxyUsername || undefined, password: proxyPassword || undefined };
+    }
+    setTesting(true);
+    try {
+      await TestSSHConnection(JSON.stringify(sshConfig), password);
+      toast.success(t("asset.testConnectionSuccess"));
+    } catch (e) {
+      toast.error(`${t("asset.testConnectionFailed")}: ${String(e)}`);
+    } finally {
+      setTesting(false);
+    }
+  };
+
   const handleSubmit = async () => {
     const sshConfig: SSHConfig = {
       host,
@@ -422,7 +451,7 @@ export function AssetForm({
                 placeholder="192.168.1.1"
               />
               <Input
-                className="w-[80px] shrink-0"
+                className="w-[80px] shrink-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                 type="number"
                 value={port}
                 onChange={(e) => setPort(Number(e.target.value))}
@@ -472,7 +501,7 @@ export function AssetForm({
                 <div className="grid gap-1">
                   <Label className="text-xs">{t("asset.proxyPort")}</Label>
                   <Input
-                    className="h-8 text-xs"
+                    className="h-8 text-xs [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                     type="number"
                     value={proxyPort}
                     onChange={(e) => setProxyPort(Number(e.target.value))}
@@ -696,6 +725,19 @@ export function AssetForm({
             </div>
           )}
 
+          {/* Test Connection */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleTestConnection}
+            disabled={testing || !host}
+            className="gap-1 w-fit"
+          >
+            {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PlugZap className="h-3.5 w-3.5" />}
+            {testing ? t("asset.testing") : t("asset.testConnection")}
+          </Button>
+
           {/* Group - Tree Selector */}
           <div className="grid gap-2">
             <Label>{t("asset.group")}</Label>
@@ -771,7 +813,7 @@ export function AssetForm({
                       placeholder="127.0.0.1"
                     />
                     <Input
-                      className="h-7 text-xs w-14"
+                      className="h-7 text-xs w-14 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       type="number"
                       value={fp.local_port || ""}
                       onChange={(e) => updateForwardedPort(i, "local_port", Number(e.target.value))}
@@ -785,7 +827,7 @@ export function AssetForm({
                       placeholder="127.0.0.1"
                     />
                     <Input
-                      className="h-7 text-xs w-14"
+                      className="h-7 text-xs w-14 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       type="number"
                       value={fp.remote_port || ""}
                       onChange={(e) => updateForwardedPort(i, "remote_port", Number(e.target.value))}

@@ -38,6 +38,19 @@ type ConfirmResponse struct {
 	Behavior string // "allow" | "allowAll" | "deny"
 }
 
+// SSHConnectEvent SSH 异步连接进度事件
+type SSHConnectEvent struct {
+	Type        string   `json:"type"`                  // "progress" | "connected" | "error" | "auth_challenge"
+	Step        string   `json:"step,omitempty"`        // 当前阶段: "resolve" | "connect" | "auth" | "shell"
+	Message     string   `json:"message,omitempty"`     // type=progress 时的进度消息
+	SessionID   string   `json:"sessionId,omitempty"`   // type=connected 时返回的会话ID
+	Error       string   `json:"error,omitempty"`       // type=error 时的错误信息
+	AuthFailed  bool     `json:"authFailed,omitempty"`  // type=error 时是否为认证失败
+	ChallengeID string   `json:"challengeId,omitempty"` // type=auth_challenge 时的质询ID
+	Prompts     []string `json:"prompts,omitempty"`     // type=auth_challenge 时的提示列表
+	Echo        []bool   `json:"echo,omitempty"`        // type=auth_challenge 时是否回显
+}
+
 // App Wails应用主结构体，替代controller层
 type App struct {
 	ctx                   context.Context
@@ -50,6 +63,10 @@ type App struct {
 	githubAuthCancel      context.CancelFunc
 	permissionChan        chan ai.PermissionResponse // 前端权限响应 channel（CLI 工具用）
 	pendingConfirms       sync.Map                   // map[string]chan ConfirmResponse（run_command 确认用）
+	pendingAuthResponses  sync.Map                   // map[string]chan []string（keyboard-interactive 认证响应用）
+	pendingConnections    sync.Map                   // map[string]context.CancelFunc（异步连接取消用）
+	mu                    sync.Mutex                 // 保护 connCounter
+	connCounter           int64                      // 连接ID计数器
 	currentConversationID int64                      // 当前活跃会话ID
 	aiProviderType        string                     // 当前 provider 类型
 	aiModel               string                     // 当前模型
@@ -67,7 +84,8 @@ func NewApp() *App {
 }
 
 // SetAIProvider 设置 AI provider 并创建 agent
-func (a *App) SetAIProvider(providerType, apiBase, apiKey, model string) {
+// mcpPort: MCP Server 端口，0 为随机端口
+func (a *App) SetAIProvider(providerType, apiBase, apiKey, model string, mcpPort int) error {
 	// 停止旧的 MCP Server
 	a.stopMCPServer()
 	a.aiProviderType = providerType
@@ -90,7 +108,11 @@ func (a *App) SetAIProvider(providerType, apiBase, apiKey, model string) {
 		}
 		// 启动 MCP Server（使用应用数据目录作为默认配置目录），共用同一个 checker
 		mcpSrv := ai.NewMCPServer(checker)
-		if err := mcpSrv.Start(a.ctx, appDataDir()); err != nil {
+		if err := mcpSrv.Start(a.ctx, appDataDir(), mcpPort); err != nil {
+			// 指定了固定端口但启动失败，返回错误
+			if mcpPort > 0 {
+				return fmt.Errorf("MCP Server 启动失败: %w", err)
+			}
 			fmt.Printf("MCP Server 启动失败: %v\n", err)
 		} else {
 			a.mcpServer = mcpSrv
@@ -110,11 +132,12 @@ func (a *App) SetAIProvider(providerType, apiBase, apiKey, model string) {
 		}
 		a.aiProvider = cliProvider
 		a.aiAgent = ai.NewAgent(cliProvider, nil, checker)
-		return
+		return nil
 	default:
 		provider = ai.NewOpenAIProvider(providerType, apiBase, apiKey, model)
 	}
 	a.aiAgent = ai.NewAgent(provider, ai.NewDefaultToolExecutor(), checker)
+	return nil
 }
 
 // stopMCPServer 停止 MCP Server 并清理
@@ -170,6 +193,109 @@ func (a *App) UpdateAsset(asset *asset_entity.Asset) error {
 // DeleteAsset 删除资产
 func (a *App) DeleteAsset(id int64) error {
 	return asset_svc.Asset().Delete(a.langCtx(), id)
+}
+
+// MoveAsset 移动资产排序（up/down/top）
+func (a *App) MoveAsset(id int64, direction string) error {
+	ctx := a.langCtx()
+	asset, err := asset_repo.Asset().Find(ctx, id)
+	if err != nil {
+		return err
+	}
+	// 获取同组所有资产（已按 sort_order ASC, id ASC 排序）
+	siblings, err := asset_repo.Asset().List(ctx, asset_repo.ListOptions{GroupID: asset.GroupID, ExactGroupID: true})
+	if err != nil {
+		return err
+	}
+	return moveItem(ctx, id, direction, siblings,
+		func(item *asset_entity.Asset) int64 { return item.ID },
+		func(item *asset_entity.Asset) int { return item.SortOrder },
+		func(itemID int64, order int) error {
+			return asset_repo.Asset().UpdateSortOrder(ctx, itemID, order)
+		},
+	)
+}
+
+// MoveGroup 移动分组排序（up/down/top）
+func (a *App) MoveGroup(id int64, direction string) error {
+	ctx := a.langCtx()
+	group, err := group_repo.Group().Find(ctx, id)
+	if err != nil {
+		return err
+	}
+	// 获取同级分组
+	allGroups, err := group_repo.Group().List(ctx)
+	if err != nil {
+		return err
+	}
+	var siblings []*group_entity.Group
+	for _, g := range allGroups {
+		if g.ParentID == group.ParentID {
+			siblings = append(siblings, g)
+		}
+	}
+	return moveItem(ctx, id, direction, siblings,
+		func(item *group_entity.Group) int64 { return item.ID },
+		func(item *group_entity.Group) int { return item.SortOrder },
+		func(itemID int64, order int) error {
+			return group_repo.Group().UpdateSortOrder(ctx, itemID, order)
+		},
+	)
+}
+
+// moveItem 通用排序移动逻辑
+func moveItem[T any](ctx context.Context, id int64, direction string, items []T,
+	getID func(T) int64, getOrder func(T) int, updateOrder func(int64, int) error,
+) error {
+	idx := -1
+	for i, item := range items {
+		if getID(item) == id {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return fmt.Errorf("item not found")
+	}
+
+	switch direction {
+	case "up":
+		if idx == 0 {
+			return nil
+		}
+		// 交换当前项和上一项的 sort_order
+		prevOrder := getOrder(items[idx-1])
+		curOrder := getOrder(items[idx])
+		if prevOrder == curOrder {
+			curOrder = prevOrder + 1
+		}
+		if err := updateOrder(getID(items[idx]), prevOrder); err != nil {
+			return err
+		}
+		return updateOrder(getID(items[idx-1]), curOrder)
+	case "down":
+		if idx == len(items)-1 {
+			return nil
+		}
+		nextOrder := getOrder(items[idx+1])
+		curOrder := getOrder(items[idx])
+		if nextOrder == curOrder {
+			nextOrder = curOrder + 1
+		}
+		if err := updateOrder(getID(items[idx]), nextOrder); err != nil {
+			return err
+		}
+		return updateOrder(getID(items[idx+1]), curOrder)
+	case "top":
+		if idx == 0 {
+			return nil
+		}
+		// 将目标项的 sort_order 设为比第一项更小
+		firstOrder := getOrder(items[0])
+		return updateOrder(id, firstOrder-1)
+	default:
+		return fmt.Errorf("invalid direction: %s", direction)
+	}
 }
 
 // --- 分组操作 ---
@@ -294,9 +420,195 @@ func (a *App) ConnectSSH(req SSHConnectRequest) (string, error) {
 
 	sessionID, err := a.sshManager.Connect(connectCfg)
 	if err != nil {
+		if isSSHAuthError(err) {
+			return "", fmt.Errorf("AUTH_FAILED:%s", err.Error())
+		}
 		return "", err
 	}
 	return sessionID, nil
+}
+
+// isSSHAuthError 判断是否为 SSH 认证失败错误
+func isSSHAuthError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "unable to authenticate") ||
+		strings.Contains(msg, "no supported methods remain")
+}
+
+// ConnectSSHAsync 异步连接 SSH 服务器，立即返回 connectionId，通过事件推送进度
+func (a *App) ConnectSSHAsync(req SSHConnectRequest) (string, error) {
+	// 前置校验（同步）
+	asset, err := asset_svc.Asset().Get(a.langCtx(), req.AssetID)
+	if err != nil {
+		return "", fmt.Errorf("资产不存在: %w", err)
+	}
+	if !asset.IsSSH() {
+		return "", fmt.Errorf("资产不是SSH类型")
+	}
+
+	// 生成 connectionId
+	a.mu.Lock()
+	a.connCounter++
+	connectionId := fmt.Sprintf("conn-%d", a.connCounter)
+	a.mu.Unlock()
+
+	// 创建可取消的 context
+	connCtx, cancel := context.WithCancel(a.ctx)
+	a.pendingConnections.Store(connectionId, cancel)
+
+	eventName := "ssh:connect:" + connectionId
+
+	emitEvent := func(event SSHConnectEvent) {
+		wailsRuntime.EventsEmit(a.ctx, eventName, event)
+	}
+
+	go func() {
+		defer func() {
+			a.pendingConnections.Delete(connectionId)
+		}()
+
+		emitEvent(SSHConnectEvent{Type: "progress", Step: "resolve", Message: "正在解析凭证..."})
+
+		sshCfg, err := asset.GetSSHConfig()
+		if err != nil {
+			emitEvent(SSHConnectEvent{Type: "error", Error: err.Error()})
+			return
+		}
+
+		// 检查是否已取消
+		if connCtx.Err() != nil {
+			return
+		}
+
+		// 解析凭证
+		password := req.Password
+		key := req.Key
+		if password == "" && sshCfg.AuthType == "password" && sshCfg.Password != "" {
+			decrypted, err := credential_svc.Default().Decrypt(sshCfg.Password)
+			if err == nil {
+				password = decrypted
+			}
+		}
+		if key == "" && sshCfg.AuthType == "key" && sshCfg.KeySource == "managed" && sshCfg.KeyID > 0 {
+			privKey, err := ssh_key_svc.GetPrivateKey(a.langCtx(), sshCfg.KeyID)
+			if err == nil {
+				key = privKey
+			}
+		}
+
+		connectCfg := ssh_svc.ConnectConfig{
+			Host:        sshCfg.Host,
+			Port:        sshCfg.Port,
+			Username:    sshCfg.Username,
+			AuthType:    sshCfg.AuthType,
+			Password:    password,
+			Key:         key,
+			PrivateKeys: sshCfg.PrivateKeys,
+			AssetID:     req.AssetID,
+			Cols:        req.Cols,
+			Rows:        req.Rows,
+			Proxy:       sshCfg.Proxy,
+			OnData: func(sid string, data []byte) {
+				wailsRuntime.EventsEmit(a.ctx, "ssh:data:"+sid, base64.StdEncoding.EncodeToString(data))
+			},
+			OnClosed: func(sid string) {
+				wailsRuntime.EventsEmit(a.ctx, "ssh:closed:"+sid, nil)
+			},
+			OnProgress: func(step, message string) {
+				emitEvent(SSHConnectEvent{Type: "progress", Step: step, Message: message})
+			},
+			OnAuthChallenge: func(prompts []string, echo []bool) ([]string, error) {
+				challengeID := fmt.Sprintf("auth_%s_%d", connectionId, time.Now().UnixNano())
+				emitEvent(SSHConnectEvent{
+					Type:        "auth_challenge",
+					ChallengeID: challengeID,
+					Prompts:     prompts,
+					Echo:        echo,
+				})
+
+				ch := make(chan []string, 1)
+				a.pendingAuthResponses.Store(challengeID, ch)
+				defer a.pendingAuthResponses.Delete(challengeID)
+
+				select {
+				case answers := <-ch:
+					return answers, nil
+				case <-connCtx.Done():
+					return nil, fmt.Errorf("连接已取消")
+				}
+			},
+		}
+
+		// 解析跳板机链
+		if sshCfg.JumpHostID > 0 {
+			emitEvent(SSHConnectEvent{Type: "progress", Step: "resolve", Message: "正在解析跳板机链..."})
+			jumpHosts, err := a.resolveJumpHosts(sshCfg.JumpHostID, 5)
+			if err != nil {
+				emitEvent(SSHConnectEvent{Type: "error", Error: fmt.Sprintf("解析跳板机失败: %s", err.Error())})
+				return
+			}
+			connectCfg.JumpHosts = jumpHosts
+		}
+
+		// 检查是否已取消
+		if connCtx.Err() != nil {
+			return
+		}
+
+		sessionID, err := a.sshManager.Connect(connectCfg)
+		if err != nil {
+			emitEvent(SSHConnectEvent{
+				Type:       "error",
+				Error:      err.Error(),
+				AuthFailed: isSSHAuthError(err),
+			})
+			return
+		}
+
+		emitEvent(SSHConnectEvent{Type: "connected", SessionID: sessionID})
+	}()
+
+	return connectionId, nil
+}
+
+// RespondAuthChallenge 前端响应 keyboard-interactive 认证质询
+func (a *App) RespondAuthChallenge(challengeID string, answers []string) {
+	if v, ok := a.pendingAuthResponses.Load(challengeID); ok {
+		ch := v.(chan []string)
+		select {
+		case ch <- answers:
+		default:
+		}
+	}
+}
+
+// CancelSSHConnect 取消异步 SSH 连接
+func (a *App) CancelSSHConnect(connectionId string) {
+	if v, ok := a.pendingConnections.Load(connectionId); ok {
+		cancel := v.(context.CancelFunc)
+		cancel()
+	}
+}
+
+// UpdateAssetPassword 更新资产的保存密码
+func (a *App) UpdateAssetPassword(assetID int64, password string) error {
+	asset, err := asset_svc.Asset().Get(a.langCtx(), assetID)
+	if err != nil {
+		return err
+	}
+	sshCfg, err := asset.GetSSHConfig()
+	if err != nil {
+		return err
+	}
+	encrypted, err := credential_svc.Default().Encrypt(password)
+	if err != nil {
+		return err
+	}
+	sshCfg.Password = encrypted
+	if err := asset.SetSSHConfig(sshCfg); err != nil {
+		return err
+	}
+	return asset_svc.Asset().Update(a.langCtx(), asset)
 }
 
 // resolveJumpHosts 递归解析跳板机链，返回从第一跳到最后一跳的顺序
@@ -332,6 +644,56 @@ func (a *App) resolveJumpHosts(jumpHostID int64, maxDepth int) ([]ssh_svc.JumpHo
 	}
 
 	return []ssh_svc.JumpHostEntry{entry}, nil
+}
+
+// TestSSHConnection 测试 SSH 连接（不创建终端会话）
+// configJSON: SSHConfig JSON，plainPassword: 明文密码（前端表单直接传入）
+func (a *App) TestSSHConnection(configJSON string, plainPassword string) error {
+	var sshCfg asset_entity.SSHConfig
+	if err := json.Unmarshal([]byte(configJSON), &sshCfg); err != nil {
+		return fmt.Errorf("配置解析失败: %w", err)
+	}
+
+	password := plainPassword
+	var key string
+
+	// 如果没传明文密码，尝试解密存储的密码
+	if password == "" && sshCfg.AuthType == "password" && sshCfg.Password != "" {
+		decrypted, err := credential_svc.Default().Decrypt(sshCfg.Password)
+		if err == nil {
+			password = decrypted
+		}
+	}
+
+	// 处理密钥认证
+	if sshCfg.AuthType == "key" && sshCfg.KeySource == "managed" && sshCfg.KeyID > 0 {
+		privKey, err := ssh_key_svc.GetPrivateKey(a.langCtx(), sshCfg.KeyID)
+		if err == nil {
+			key = privKey
+		}
+	}
+
+	connectCfg := ssh_svc.ConnectConfig{
+		Host:        sshCfg.Host,
+		Port:        sshCfg.Port,
+		Username:    sshCfg.Username,
+		AuthType:    sshCfg.AuthType,
+		Password:    password,
+		Key:         key,
+		PrivateKeys: sshCfg.PrivateKeys,
+		Proxy:       sshCfg.Proxy,
+	}
+
+	// 解析跳板机
+	if sshCfg.JumpHostID > 0 {
+		jumpHosts, err := a.resolveJumpHosts(sshCfg.JumpHostID, 5)
+		if err != nil {
+			return fmt.Errorf("解析跳板机失败: %w", err)
+		}
+		connectCfg.JumpHosts = jumpHosts
+	}
+
+	return a.sshManager.TestConnection(connectCfg)
 }
 
 // WriteSSH 向 SSH 终端写入数据（base64 编码）
@@ -926,19 +1288,19 @@ func (a *App) makeCommandConfirmFunc() ai.CommandConfirmFunc {
 
 // RespondCommandConfirm 前端响应 run_command 确认请求
 func (a *App) RespondCommandConfirm(confirmID, behavior string) {
-	// 先检查 Codex MCP 工具确认
-	if p, ok := a.aiProvider.(*ai.LocalCLIProvider); ok {
-		if srv := p.GetCodexServer(); srv != nil {
-			srv.RespondConfirm(ai.PermissionResponse{Behavior: behavior})
-			return
-		}
-	}
-	// 普通命令确认
+	// 先检查普通命令确认（有明确的 confirmID 匹配）
 	if v, ok := a.pendingConfirms.Load(confirmID); ok {
 		ch := v.(chan ConfirmResponse)
 		select {
 		case ch <- ConfirmResponse{Behavior: behavior}:
 		default:
+		}
+		return
+	}
+	// 否则转发到 Codex MCP 工具确认
+	if p, ok := a.aiProvider.(*ai.LocalCLIProvider); ok {
+		if srv := p.GetCodexServer(); srv != nil {
+			srv.RespondConfirm(ai.PermissionResponse{Behavior: behavior})
 		}
 	}
 }
@@ -1056,6 +1418,56 @@ func (a *App) ImportTabbySelected(selectedIndexes []int) (*import_svc.ImportResu
 		return nil, nil
 	}
 	return import_svc.ImportTabbySelected(a.langCtx(), data, selectedIndexes)
+}
+
+// PreviewSSHConfig 预览 SSH Config 文件（不写入数据库）
+// 自动检测 ~/.ssh/config，找不到则弹出文件选择框
+func (a *App) PreviewSSHConfig() (*import_svc.PreviewResult, error) {
+	data, err := a.readSSHConfig()
+	if err != nil {
+		return nil, err
+	}
+	if data == nil {
+		return nil, nil
+	}
+	return import_svc.PreviewSSHConfig(a.langCtx(), data)
+}
+
+// ImportSSHConfigSelected 导入用户选中的 SSH Config 连接
+func (a *App) ImportSSHConfigSelected(selectedIndexes []int) (*import_svc.ImportResult, error) {
+	data, err := a.readSSHConfig()
+	if err != nil {
+		return nil, err
+	}
+	if data == nil {
+		return nil, nil
+	}
+	return import_svc.ImportSSHConfigSelected(a.langCtx(), data, selectedIndexes)
+}
+
+// readSSHConfig 读取 SSH Config 文件
+func (a *App) readSSHConfig() ([]byte, error) {
+	filePath := import_svc.DetectSSHConfigPath()
+	if filePath == "" {
+		var err error
+		filePath, err = wailsRuntime.OpenFileDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+			Title: "选择 SSH Config 文件",
+			Filters: []wailsRuntime.FileFilter{
+				{DisplayName: "All Files", Pattern: "*"},
+			},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("打开文件对话框失败: %w", err)
+		}
+		if filePath == "" {
+			return nil, nil
+		}
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("读取文件失败: %w", err)
+	}
+	return data, nil
 }
 
 // readTabbyConfig 读取 Tabby 配置文件内容

@@ -8,7 +8,8 @@
     "home": "Home",
     "sshKeys": "SSH Keys",
     "settings": "Settings",
-    "appearance": "Appearance"
+    "appearance": "Appearance",
+    "ai": "AI Assistant"
   },
   "action": {
     "confirm": "Confirm",
@@ -18,7 +19,9 @@
     "delete": "Delete",
     "edit": "Edit",
     "add": "Add",
-    "copy": "Copy"
+    "copy": "Copy",
+    "close": "Close",
+    "submit": "Submit"
   },
   "theme": {
     "toggle": "Toggle theme",
@@ -102,7 +105,14 @@
     "connectionJumpHost": "Jump Host",
     "connectionProxy": "Proxy",
     "selectJumpHost": "Select Jump Host",
-    "selectGroup": "Select Group"
+    "selectGroup": "Select Group",
+    "testConnection": "Test Connection",
+    "testConnectionSuccess": "Connection successful",
+    "testConnectionFailed": "Connection failed",
+    "testing": "Testing...",
+    "moveUp": "Move Up",
+    "moveDown": "Move Down",
+    "moveTop": "Move to Top"
   },
   "sshKey": {
     "title": "SSH Keys",
@@ -140,6 +150,8 @@
     "title": "Import",
     "tabby": "Import from Tabby",
     "tabbyDesc": "Import SSH connection profiles from Tabby terminal",
+    "sshConfig": "Import from SSH Config",
+    "sshConfigDesc": "Import SSH connections from ~/.ssh/config",
     "importing": "Importing...",
     "success": "Import successful",
     "result": "Total {{total}}, Success {{success}}, Skipped {{skipped}}, Failed {{failed}}",
@@ -155,7 +167,22 @@
     "connect": "Connect",
     "disconnect": "Disconnect",
     "password": "Password",
-    "terminal": "Terminal"
+    "terminal": "Terminal",
+    "connecting": "Connecting...",
+    "authFailed": "Authentication failed, please re-enter password",
+    "updatePassword": "Update saved password after connecting",
+    "connectProgress": {
+      "connecting": "Connecting...",
+      "connectionFailed": "Connection Failed",
+      "authChallenge": "Awaiting authentication input",
+      "retry": "Reconnect",
+      "steps": {
+        "resolve": "Resolve",
+        "connect": "Connect",
+        "auth": "Auth",
+        "shell": "Shell"
+      }
+    }
   },
   "settings": {
     "providerType": "Provider Type",
@@ -164,7 +191,9 @@
     "cliType": "CLI Type",
     "detectedCLIs": "Detected local CLIs",
     "configured": "Configured",
-    "saved": "Saved"
+    "saved": "Saved",
+    "mcpPort": "MCP Port",
+    "mcpPortPlaceholder": "Leave empty for random port"
   },
   "backup": {
     "title": "Backup",
@@ -243,10 +272,15 @@
     "split.vertical": "Split Vertical",
     "split.horizontal": "Split Horizontal",
     "panel.ai": "Toggle AI Panel",
-    "panel.sidebar": "Toggle Sidebar"
+    "panel.sidebar": "Toggle Sidebar",
+    "page.home": "Switch to Home",
+    "page.settings": "Switch to Settings",
+    "page.sshkeys": "Switch to SSH Keys"
   },
   "panel": {
-    "toggleSidebar": "Toggle Sidebar"
+    "toggleSidebar": "Toggle Sidebar",
+    "hideSidebar": "Hide Toolbar",
+    "showSidebar": "Show Toolbar"
   },
   "terminal": {
     "title": "Terminal",

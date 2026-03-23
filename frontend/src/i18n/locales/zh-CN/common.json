@@ -8,7 +8,8 @@
     "home": "首页",
     "sshKeys": "SSH 密钥",
     "settings": "设置",
-    "appearance": "外观"
+    "appearance": "外观",
+    "ai": "AI 助手"
   },
   "action": {
     "confirm": "确认",
@@ -18,7 +19,9 @@
     "delete": "删除",
     "edit": "编辑",
     "add": "添加",
-    "copy": "复制"
+    "copy": "复制",
+    "close": "关闭",
+    "submit": "提交"
   },
   "theme": {
     "toggle": "切换主题",
@@ -102,7 +105,14 @@
     "connectionJumpHost": "跳板机",
     "connectionProxy": "代理",
     "selectJumpHost": "选择跳板机",
-    "selectGroup": "选择分组"
+    "selectGroup": "选择分组",
+    "testConnection": "测试连接",
+    "testConnectionSuccess": "连接成功",
+    "testConnectionFailed": "连接失败",
+    "testing": "测试中...",
+    "moveUp": "上移",
+    "moveDown": "下移",
+    "moveTop": "置顶"
   },
   "sshKey": {
     "title": "SSH 密钥",
@@ -140,6 +150,8 @@
     "title": "导入",
     "tabby": "从 Tabby 导入",
     "tabbyDesc": "导入 Tabby 终端的 SSH 连接配置",
+    "sshConfig": "从 SSH Config 导入",
+    "sshConfigDesc": "导入 ~/.ssh/config 中的 SSH 连接配置",
     "importing": "导入中...",
     "success": "导入成功",
     "result": "共 {{total}} 条，成功 {{success}} 条，跳过 {{skipped}} 条，失败 {{failed}} 条",
@@ -155,7 +167,22 @@
     "connect": "连接",
     "disconnect": "断开",
     "password": "密码",
-    "terminal": "终端"
+    "terminal": "终端",
+    "connecting": "连接中...",
+    "authFailed": "认证失败，请重新输入密码",
+    "updatePassword": "连接成功后更新保存的密码",
+    "connectProgress": {
+      "connecting": "连接中...",
+      "connectionFailed": "连接失败",
+      "authChallenge": "等待认证输入",
+      "retry": "重新连接",
+      "steps": {
+        "resolve": "解析",
+        "connect": "连接",
+        "auth": "认证",
+        "shell": "终端"
+      }
+    }
   },
   "settings": {
     "providerType": "Provider 类型",
@@ -164,7 +191,9 @@
     "cliType": "CLI 类型",
     "detectedCLIs": "检测到本地 CLI",
     "configured": "已配置",
-    "saved": "已保存"
+    "saved": "已保存",
+    "mcpPort": "MCP 端口",
+    "mcpPortPlaceholder": "留空则随机分配"
   },
   "backup": {
     "title": "备份",
@@ -243,10 +272,15 @@
     "split.vertical": "垂直分割",
     "split.horizontal": "水平分割",
     "panel.ai": "切换 AI 面板",
-    "panel.sidebar": "切换资产列表"
+    "panel.sidebar": "切换资产列表",
+    "page.home": "切换到首页",
+    "page.settings": "切换到设置",
+    "page.sshkeys": "切换到 SSH 密钥"
   },
   "panel": {
-    "toggleSidebar": "切换资产列表"
+    "toggleSidebar": "切换资产列表",
+    "hideSidebar": "隐藏工具条",
+    "showSidebar": "显示工具条"
   },
   "terminal": {
     "title": "终端",

@@ -18,7 +18,34 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { asset_entity, group_entity } from "../wailsjs/go/models";
 
 function App() {
-  const [activePage, setActivePage] = useState("home");
+  const [openPageTabs, setOpenPageTabs] = useState<string[]>([]);
+  const [activePageTab, setActivePageTab] = useState<string | null>(null);
+
+  const activePage = activePageTab || "home";
+
+  const handlePageChange = useCallback((page: string) => {
+    if (page === "home") {
+      setActivePageTab(null);
+    } else {
+      if (!openPageTabs.includes(page)) {
+        setOpenPageTabs((prev) => [...prev, page]);
+      }
+      setActivePageTab(page);
+    }
+  }, [openPageTabs]);
+
+  const closePageTab = useCallback((pageId: string) => {
+    setOpenPageTabs((prev) => prev.filter((id) => id !== pageId));
+    setActivePageTab((prev) => (prev === pageId ? null : prev));
+  }, []);
+
+  const handleTerminalTabClick = useCallback(() => {
+    setActivePageTab(null);
+  }, []);
+
+  const [sidebarHidden, setSidebarHidden] = useState(
+    () => localStorage.getItem("sidebar_hidden") === "true"
+  );
   const [assetTreeCollapsed, setAssetTreeCollapsed] = useState(
     () => localStorage.getItem("sidebar_collapsed") === "true"
   );
@@ -46,6 +73,13 @@ function App() {
     });
   }, []);
 
+  const toggleSidebarHidden = useCallback(() => {
+    setSidebarHidden((prev) => {
+      localStorage.setItem("sidebar_hidden", String(!prev));
+      return !prev;
+    });
+  }, []);
+
   const handleAssetTreeResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     setAssetTreeResizing(true);
@@ -69,7 +103,14 @@ function App() {
     document.addEventListener("mouseup", onMouseUp);
   }, []);
 
-  useKeyboardShortcuts({ onToggleAIPanel: toggleAIPanel, onToggleSidebar: toggleSidebar });
+  useKeyboardShortcuts({
+    onToggleAIPanel: toggleAIPanel,
+    onToggleSidebar: toggleSidebar,
+    onPageChange: handlePageChange,
+    onClosePageTab: closePageTab,
+    openPageTabs,
+    activePageTab,
+  });
 
   // 资产表单
   const [assetFormOpen, setAssetFormOpen] = useState(false);
@@ -112,7 +153,7 @@ const { assets, groups, selectedAssetId, selectedGroupId, selectAsset, selectGro
 
   const handleSelectAsset = (asset: asset_entity.Asset) => {
     selectAsset(asset.ID);
-    setActivePage("home");
+    setActivePageTab(null);
     openAssetInfo();
   };
 
@@ -135,18 +176,25 @@ const { assets, groups, selectedAssetId, selectedGroupId, selectAsset, selectGro
       <TooltipProvider>
         <div className="flex h-screen w-screen overflow-hidden bg-background">
           <WindowControls />
-          <Sidebar
-            activePage={activePage}
-            onPageChange={setActivePage}
-            sidebarCollapsed={assetTreeCollapsed}
-            onToggleSidebar={toggleSidebar}
-          />
+          {!sidebarHidden && (
+            <Sidebar
+              activePage={activePage}
+              onPageChange={handlePageChange}
+              sidebarCollapsed={assetTreeCollapsed}
+              onToggleSidebar={toggleSidebar}
+              onHideSidebar={toggleSidebarHidden}
+              aiPanelCollapsed={aiPanelCollapsed}
+              onToggleAIPanel={toggleAIPanel}
+            />
+          )}
           <div
             className="relative overflow-hidden shrink-0 transition-[width] duration-200"
             style={{ width: assetTreeCollapsed ? 0 : assetTreeWidth }}
           >
             <AssetTree
               collapsed={false}
+              sidebarHidden={sidebarHidden}
+              onShowSidebar={toggleSidebarHidden}
               onAddAsset={handleAddAsset}
               onAddGroup={() => {
                 setEditingGroup(null);
@@ -159,7 +207,7 @@ const { assets, groups, selectedAssetId, selectedGroupId, selectAsset, selectGro
               onGroupDetail={(group) => {
                 selectGroup(group.ID);
                 selectAsset(null);
-                setActivePage("home");
+                setActivePageTab(null);
                 openAssetInfo();
               }}
               onEditAsset={handleEditAsset}
@@ -183,6 +231,11 @@ const { assets, groups, selectedAssetId, selectedGroupId, selectAsset, selectGro
             onEditAsset={handleEditAsset}
             onDeleteAsset={handleDeleteAsset}
             onConnectAsset={handleConnectAsset}
+            openPageTabs={openPageTabs}
+            activePageTab={activePageTab}
+            onActivatePageTab={handlePageChange}
+            onClosePageTab={closePageTab}
+            onTerminalTabClick={handleTerminalTabClick}
           />
           <AIPanel
             collapsed={aiPanelCollapsed}

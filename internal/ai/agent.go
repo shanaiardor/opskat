@@ -59,7 +59,7 @@ func (a *Agent) Chat(ctx context.Context, messages []Message, onEvent func(Strea
 			case "content":
 				contentBuf += event.Content
 				onEvent(event)
-			case "tool_start", "tool_result":
+			case "tool_start", "tool_result", "tool_confirm", "tool_confirm_result":
 				onEvent(event)
 			case "tool_call":
 				toolCalls = event.ToolCalls
