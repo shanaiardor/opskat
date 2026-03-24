@@ -57,6 +57,11 @@ import {
   SetUpdateChannel,
   CheckForUpdate,
   DownloadAndInstallUpdate,
+  LoadAISetting,
+  GetGitHubToken,
+  GetStoredGitHubUser,
+  SaveGitHubToken,
+  ClearGitHubToken,
 } from "../../../wailsjs/go/main/App";
 import { backup_svc } from "../../../wailsjs/go/models";
 import { import_svc } from "../../../wailsjs/go/models";
@@ -540,6 +545,11 @@ function UpdateSection() {
   );
 }
 
+function maskApiKey(key: string): string {
+  if (key.length <= 8) return "****";
+  return key.slice(0, 4) + "****" + key.slice(-4);
+}
+
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { theme, setTheme } = useTheme();
@@ -552,18 +562,11 @@ export function SettingsPage() {
   );
 
   // AI Provider
-  const [providerType, setProviderType] = useState(
-    localStorage.getItem("ai_provider_type") || "openai"
-  );
-  const [apiBase, setApiBase] = useState(
-    localStorage.getItem("ai_api_base") || "https://api.openai.com/v1"
-  );
-  const [apiKey, setApiKey] = useState(
-    localStorage.getItem("ai_api_key") || ""
-  );
-  const [model, setModel] = useState(
-    localStorage.getItem("ai_model") || "gpt-4o"
-  );
+  const [providerType, setProviderType] = useState("openai");
+  const [apiBase, setApiBase] = useState("https://api.openai.com/v1");
+  const [apiKey, setApiKey] = useState("");
+  const [apiKeyPlaceholder, setApiKeyPlaceholder] = useState("");
+  const [model, setModel] = useState("gpt-4o");
   const [saved, setSaved] = useState(false);
 
   // 文件备份
@@ -584,8 +587,8 @@ export function SettingsPage() {
   const [sshConfigLoading, setSSHConfigLoading] = useState(false);
 
   // GitHub
-  const [ghToken, setGhToken] = useState(localStorage.getItem("github_token") || "");
-  const [ghUser, setGhUser] = useState(localStorage.getItem("github_user") || "");
+  const [ghToken, setGhToken] = useState("");
+  const [ghUser, setGhUser] = useState("");
   const [deviceFlowOpen, setDeviceFlowOpen] = useState(false);
   const [deviceFlowInfo, setDeviceFlowInfo] = useState<backup_svc.DeviceFlowInfo | null>(null);
   const [ghLoggingIn, setGhLoggingIn] = useState(false);
@@ -611,29 +614,39 @@ export function SettingsPage() {
 
   useEffect(() => { detectCLIs(); }, [detectCLIs]);
 
+  // 从后端加载 AI 配置
   useEffect(() => {
-    const savedType = localStorage.getItem("ai_provider_type");
-    const savedBase = localStorage.getItem("ai_api_base");
-    const savedKey = localStorage.getItem("ai_api_key");
-    const savedModel = localStorage.getItem("ai_model");
-    if (savedType && savedBase && savedKey && savedModel) {
-      configure(savedType, savedBase, savedKey, savedModel);
-    }
-  }, [configure]);
+    LoadAISetting().then(info => {
+      if (info && info.configured) {
+        setProviderType(info.providerType);
+        setApiBase(info.apiBase);
+        setModel(info.model);
+        setApiKeyPlaceholder(info.maskedApiKey || "");
+      }
+    }).catch(() => {});
+  }, []);
 
-  // 验证已保存的 GitHub token
+  // 从后端加载 GitHub token
   useEffect(() => {
-    if (ghToken) {
-      GetGitHubUser(ghToken).then(user => {
-        setGhUser(user.login);
-        localStorage.setItem("github_user", user.login);
-      }).catch(() => {
-        setGhToken("");
-        setGhUser("");
-        localStorage.removeItem("github_token");
-        localStorage.removeItem("github_user");
-      });
-    }
+    (async () => {
+      try {
+        const token = await GetGitHubToken();
+        const user = await GetStoredGitHubUser();
+        if (token) {
+          setGhToken(token);
+          setGhUser(user || "");
+          // 验证 token 是否仍有效
+          GetGitHubUser(token).then(u => {
+            setGhUser(u.login);
+            SaveGitHubToken(token, u.login).catch(() => {});
+          }).catch(() => {
+            setGhToken("");
+            setGhUser("");
+            ClearGitHubToken().catch(() => {});
+          });
+        }
+      } catch { /* not configured */ }
+    })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadGists = useCallback(async () => {
@@ -650,12 +663,12 @@ export function SettingsPage() {
 
   // --- AI ---
   const handleSaveAI = async () => {
-    localStorage.setItem("ai_provider_type", providerType);
-    localStorage.setItem("ai_api_base", apiBase);
-    localStorage.setItem("ai_api_key", apiKey);
-    localStorage.setItem("ai_model", model);
     try {
       await configure(providerType, apiBase, apiKey, model);
+      if (apiKey) {
+        setApiKeyPlaceholder(maskApiKey(apiKey));
+        setApiKey("");
+      }
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -773,11 +786,10 @@ export function SettingsPage() {
       const token = await WaitGitHubDeviceAuth(info.deviceCode, info.interval);
       setDeviceFlowOpen(false);
       setGhToken(token);
-      localStorage.setItem("github_token", token);
 
       const user = await GetGitHubUser(token);
       setGhUser(user.login);
-      localStorage.setItem("github_user", user.login);
+      await SaveGitHubToken(token, user.login);
       toast.success(t("backup.gistLoggedIn", { user: user.login }));
     } catch (e: any) {
       if (!String(e).includes("取消")) {
@@ -793,8 +805,7 @@ export function SettingsPage() {
     setGhToken("");
     setGhUser("");
     setGists([]);
-    localStorage.removeItem("github_token");
-    localStorage.removeItem("github_user");
+    ClearGitHubToken().catch(() => {});
   };
 
   const handleCancelDeviceFlow = () => {
@@ -923,7 +934,7 @@ export function SettingsPage() {
                     </div>
                     <div className="grid gap-2">
                       <Label>API Key</Label>
-                      <Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+                      <Input type="password" value={apiKey} placeholder={apiKeyPlaceholder || "sk-..."} onChange={(e) => setApiKey(e.target.value)} />
                     </div>
                     <div className="grid gap-2">
                       <Label>{t("settings.model")}</Label>

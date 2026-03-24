@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"context"
@@ -10,7 +10,9 @@ import (
 	"github.com/opskat/opskat/internal/approval"
 	"github.com/opskat/opskat/internal/bootstrap"
 
+	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // planInput 从 stdin 读取的计划 JSON 格式
@@ -144,8 +146,12 @@ func cmdPlanSubmit(ctx context.Context, args []string) int {
 	// 通过 socket 发送 plan 请求
 	dataDir := bootstrap.AppDataDir()
 	sockPath := approval.SocketPath(dataDir)
+	authToken, err := bootstrap.ReadAuthToken(dataDir)
+	if err != nil {
+		logger.Default().Warn("read auth token", zap.Error(err))
+	}
 
-	resp, err := approval.RequestApproval(sockPath, approval.ApprovalRequest{
+	resp, err := approval.RequestApprovalWithToken(sockPath, authToken, approval.ApprovalRequest{
 		Type:        "plan",
 		SessionID:   sessionID,
 		PlanItems:   planItems,

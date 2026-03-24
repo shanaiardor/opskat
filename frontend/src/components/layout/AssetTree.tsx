@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFullscreen } from "@/hooks/useFullscreen";
 import {
   ChevronRight,
@@ -33,6 +33,7 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -81,7 +82,8 @@ export function AssetTree({
   const { assets, groups, selectedAssetId, fetchAssets, fetchGroups, deleteAsset, deleteGroup, refresh } =
     useAssetStore();
   const { tabData, connectingAssetIds } = useTerminalStore();
-  const terminalTabs = useTabStore((s) => s.tabs.filter((t) => t.type === "terminal"));
+  const tabs = useTabStore((s) => s.tabs);
+  const terminalTabs = useMemo(() => tabs.filter((t) => t.type === "terminal"), [tabs]);
   const [filter, setFilter] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<{
     id: number;
@@ -329,33 +331,20 @@ export function AssetTree({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <AlertDialog
+      <ConfirmDialog
         open={!!deleteAssetConfirm}
         onOpenChange={(open) => !open && setDeleteAssetConfirm(null)}
-      >
-        <AlertDialogContent onOverlayClick={() => setDeleteAssetConfirm(null)}>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("asset.deleteAssetTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("asset.deleteAssetDesc", { name: deleteAssetConfirm?.Name })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("action.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                if (deleteAssetConfirm) {
-                  deleteAsset(deleteAssetConfirm.ID);
-                }
-                setDeleteAssetConfirm(null);
-              }}
-            >
-              {t("action.delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title={t("asset.deleteAssetTitle")}
+        description={t("asset.deleteAssetDesc", { name: deleteAssetConfirm?.Name })}
+        cancelText={t("action.cancel")}
+        confirmText={t("action.delete")}
+        onConfirm={() => {
+          if (deleteAssetConfirm) {
+            deleteAsset(deleteAssetConfirm.ID);
+          }
+          setDeleteAssetConfirm(null);
+        }}
+      />
     </div>
   );
 }

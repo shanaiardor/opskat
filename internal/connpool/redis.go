@@ -18,9 +18,13 @@ import (
 
 // DialRedis 创建 Redis 连接（直连或通过 SSH 隧道）
 func DialRedis(ctx context.Context, cfg *asset_entity.RedisConfig, sshPool *sshpool.Pool) (*redis.Client, io.Closer, error) {
-	password, err := credential_svc.Default().Decrypt(cfg.Password)
-	if err != nil {
-		password = cfg.Password
+	var password string
+	if cfg.Password != "" {
+		decrypted, err := credential_svc.Default().Decrypt(cfg.Password)
+		if err != nil {
+			return nil, nil, fmt.Errorf("解密 Redis 密码失败: %w", err)
+		}
+		password = decrypted
 	}
 
 	opts := &redis.Options{

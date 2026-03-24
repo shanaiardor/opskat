@@ -83,7 +83,11 @@ func (r *assetRepo) Update(ctx context.Context, asset *asset_entity.Asset) error
 
 func (r *assetRepo) Delete(ctx context.Context, id int64) error {
 	return db.Ctx(ctx).Model(&asset_entity.Asset{}).Where("id = ?", id).
-		Update("status", asset_entity.StatusDeleted).Error
+		Updates(map[string]interface{}{
+			"status":         asset_entity.StatusDeleted,
+			"config":         "", // 清除敏感配置（含加密密码/密钥）
+			"command_policy": "",
+		}).Error
 }
 
 func (r *assetRepo) MoveToGroup(ctx context.Context, fromGroupID, toGroupID int64) error {
@@ -95,7 +99,11 @@ func (r *assetRepo) MoveToGroup(ctx context.Context, fromGroupID, toGroupID int6
 func (r *assetRepo) DeleteByGroupID(ctx context.Context, groupID int64) error {
 	return db.Ctx(ctx).Model(&asset_entity.Asset{}).
 		Where("group_id = ? AND status = ?", groupID, asset_entity.StatusActive).
-		Update("status", asset_entity.StatusDeleted).Error
+		Updates(map[string]interface{}{
+			"status":         asset_entity.StatusDeleted,
+			"config":         "",
+			"command_policy": "",
+		}).Error
 }
 
 func (r *assetRepo) UpdateSortOrder(ctx context.Context, id int64, sortOrder int) error {

@@ -14,8 +14,8 @@ import (
 	"github.com/opskat/opskat/internal/repository/credential_repo"
 	"github.com/opskat/opskat/internal/repository/forward_repo"
 	"github.com/opskat/opskat/internal/repository/group_repo"
+	"github.com/opskat/opskat/internal/repository/host_key_repo"
 	"github.com/opskat/opskat/internal/repository/plan_repo"
-	"github.com/opskat/opskat/internal/repository/ssh_key_repo"
 	"github.com/opskat/opskat/internal/service/credential_svc"
 	"github.com/opskat/opskat/migrations"
 
@@ -92,8 +92,8 @@ func Init(ctx context.Context, opts Options) error {
 	conversation_repo.RegisterConversation(conversation_repo.NewConversation())
 	group_repo.RegisterGroup(group_repo.NewGroup())
 	plan_repo.RegisterPlan(plan_repo.NewPlan())
-	ssh_key_repo.RegisterSSHKey(ssh_key_repo.NewSSHKey())
 	credential_repo.RegisterCredential(credential_repo.NewCredential())
+	host_key_repo.RegisterHostKey(host_key_repo.NewHostKey())
 	forward_repo.RegisterForward(forward_repo.NewForward())
 
 	if err := migrations.RunMigrations(db.Default()); err != nil {

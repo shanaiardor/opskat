@@ -1,26 +1,16 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Plus, Trash2, Bot, PanelRightClose, MessageSquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useAIStore } from "@/stores/aiStore";
 import { useTabStore, type AITabMeta } from "@/stores/tabStore";
 import { useFullscreen } from "@/hooks/useFullscreen";
+import { useResizeHandle } from "@/hooks/useResizeHandle";
 import { cn } from "@/lib/utils";
 
-const PANEL_MIN_WIDTH = 200;
-const PANEL_MAX_WIDTH = 400;
-const PANEL_DEFAULT_WIDTH = 240;
+// resize constants kept near usage for clarity
 
 function formatRelativeTime(timestamp: number): string {
   const now = Date.now() / 1000;
@@ -55,17 +45,18 @@ export function ConversationListPanel({
     deleteConversation,
     tabStates,
   } = useAIStore();
-  const aiTabs = useTabStore((s) => s.tabs.filter((t) => t.type === "ai"));
+  const tabs = useTabStore((s) => s.tabs);
+  const aiTabs = useMemo(() => tabs.filter((t) => t.type === "ai"), [tabs]);
 
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null);
 
-  const [width, setWidth] = useState(() => {
-    const saved = localStorage.getItem("ai_panel_width");
-    return saved
-      ? Math.max(PANEL_MIN_WIDTH, Math.min(PANEL_MAX_WIDTH, Number(saved)))
-      : PANEL_DEFAULT_WIDTH;
+  const { width, isResizing: resizing, handleMouseDown: handleResizeStart } = useResizeHandle({
+    defaultWidth: 240,
+    minWidth: 200,
+    maxWidth: 400,
+    reverse: true,
+    storageKey: "ai_panel_width",
   });
-  const [resizing, setResizing] = useState(false);
 
   // 初始加载会话列表
   useEffect(() => {
@@ -73,38 +64,6 @@ export function ConversationListPanel({
       fetchConversations();
     }
   }, [configured, fetchConversations]);
-
-  const handleResizeStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      setResizing(true);
-      const startX = e.clientX;
-      const startWidth = width;
-
-      const onMouseMove = (ev: MouseEvent) => {
-        const delta = startX - ev.clientX;
-        const newWidth = Math.max(
-          PANEL_MIN_WIDTH,
-          Math.min(PANEL_MAX_WIDTH, startWidth + delta)
-        );
-        setWidth(newWidth);
-      };
-
-      const onMouseUp = () => {
-        setResizing(false);
-        document.removeEventListener("mousemove", onMouseMove);
-        document.removeEventListener("mouseup", onMouseUp);
-        setWidth((w) => {
-          localStorage.setItem("ai_panel_width", String(w));
-          return w;
-        });
-      };
-
-      document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", onMouseUp);
-    },
-    [width]
-  );
 
   const handleOpenConversation = async (conversationId: number) => {
     try {
@@ -241,18 +200,15 @@ export function ConversationListPanel({
         </div>
       </div>
 
-      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("ai.deleteConversationTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("ai.deleteConversationDesc")}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("action.cancel")}</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={handleConfirmDelete}>{t("action.delete")}</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={t("ai.deleteConversationTitle")}
+        description={t("ai.deleteConversationDesc")}
+        cancelText={t("action.cancel")}
+        confirmText={t("action.delete")}
+        onConfirm={handleConfirmDelete}
+      />
     </>
   );
 }

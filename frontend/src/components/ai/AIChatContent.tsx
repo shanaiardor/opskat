@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Send, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
+import rehypeSanitize from "rehype-sanitize";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAIStore, type ChatMessage } from "@/stores/aiStore";
@@ -161,7 +162,7 @@ function AssistantMessage({ msg }: { msg: ChatMessage }) {
               key={idx}
               className="prose prose-sm dark:prose-invert prose-p:my-1 prose-pre:my-1 overflow-x-auto break-words"
             >
-              <Markdown>{block.content}</Markdown>
+              <Markdown rehypePlugins={[rehypeSanitize]}>{block.content}</Markdown>
             </div>
           ) : (
             <ToolBlock key={idx} block={block} />
@@ -176,7 +177,7 @@ function AssistantMessage({ msg }: { msg: ChatMessage }) {
 
   return (
     <div className="rounded-xl rounded-bl-sm bg-muted/60 border border-border/50 px-3 py-2 max-w-[95%] min-w-0 overflow-hidden break-words prose prose-sm dark:prose-invert prose-p:my-1 prose-pre:my-1 prose-pre:overflow-x-auto shadow-sm">
-      <Markdown>{msg.content}</Markdown>
+      <Markdown rehypePlugins={[rehypeSanitize]}>{msg.content}</Markdown>
       {msg.streaming && (
         <Loader2 className="h-3 w-3 animate-spin inline-block ml-1" />
       )}

@@ -6,7 +6,7 @@ import "errors"
 type ForwardConfig struct {
 	ID         int64  `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
 	Name       string `gorm:"column:name;type:varchar(255);not null" json:"name"`
-	AssetID    int64  `gorm:"column:asset_id;not null" json:"assetId"`
+	AssetID    int64  `gorm:"column:asset_id;not null;index" json:"assetId"`
 	Createtime int64  `gorm:"column:createtime" json:"createtime"`
 	Updatetime int64  `gorm:"column:updatetime" json:"updatetime"`
 }
@@ -34,6 +34,8 @@ type ForwardRule struct {
 	LocalPort  int    `gorm:"column:local_port;not null" json:"localPort"`
 	RemoteHost string `gorm:"column:remote_host;type:varchar(255);not null" json:"remoteHost"`
 	RemotePort int    `gorm:"column:remote_port;not null" json:"remotePort"`
+	Createtime int64  `gorm:"column:createtime" json:"createtime"`
+	Updatetime int64  `gorm:"column:updatetime" json:"updatetime"`
 }
 
 func (ForwardRule) TableName() string {

@@ -594,7 +594,10 @@ func (s *CodexAppServer) handleUserInputRequest(requestID *int64, params json.Ra
 	}
 
 	if requestID != nil {
-		resultData, _ := json.Marshal(responseResult)
+		resultData, err := json.Marshal(responseResult)
+		if err != nil {
+			logger.Default().Warn("marshal codex response result", zap.Error(err))
+		}
 		replyMsg := codexJSONRPC{
 			ID:     requestID,
 			Result: resultData,
@@ -682,7 +685,10 @@ func (s *CodexAppServer) handleCommandApproval(requestID *int64, params json.Raw
 	}
 
 	if requestID != nil {
-		resultData, _ := json.Marshal(response)
+		resultData, err := json.Marshal(response)
+		if err != nil {
+			logger.Default().Warn("marshal codex approval response", zap.Error(err))
+		}
 		replyMsg := codexJSONRPC{
 			ID:     requestID,
 			Result: resultData,

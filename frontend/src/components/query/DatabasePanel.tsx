@@ -1,7 +1,7 @@
-import { useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { X, Table2, Code2, Database } from "lucide-react";
 import { useQueryStore } from "@/stores/queryStore";
+import { useResizeHandle } from "@/hooks/useResizeHandle";
 import { DatabaseTree } from "./DatabaseTree";
 import { TableDataTab } from "./TableDataTab";
 import { SqlEditorTab } from "./SqlEditorTab";
@@ -10,48 +10,16 @@ interface DatabasePanelProps {
   tabId: string;
 }
 
-const MIN_SIDEBAR_WIDTH = 140;
-const MAX_SIDEBAR_WIDTH = 400;
-const DEFAULT_SIDEBAR_WIDTH = 200;
-
 export function DatabasePanel({ tabId }: DatabasePanelProps) {
   const { t } = useTranslation();
   const { dbStates, closeInnerTab, setActiveInnerTab } = useQueryStore();
   const dbState = dbStates[tabId];
 
-  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
-  const resizing = useRef(false);
-  const startX = useRef(0);
-  const startWidth = useRef(DEFAULT_SIDEBAR_WIDTH);
-
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      resizing.current = true;
-      startX.current = e.clientX;
-      startWidth.current = sidebarWidth;
-
-      const handleMouseMove = (e: MouseEvent) => {
-        if (!resizing.current) return;
-        const delta = e.clientX - startX.current;
-        const newWidth = Math.max(
-          MIN_SIDEBAR_WIDTH,
-          Math.min(MAX_SIDEBAR_WIDTH, startWidth.current + delta)
-        );
-        setSidebarWidth(newWidth);
-      };
-
-      const handleMouseUp = () => {
-        resizing.current = false;
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
-      };
-
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-    },
-    [sidebarWidth]
-  );
+  const { width: sidebarWidth, handleMouseDown } = useResizeHandle({
+    defaultWidth: 200,
+    minWidth: 140,
+    maxWidth: 400,
+  });
 
   if (!dbState) return null;
 

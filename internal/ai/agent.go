@@ -52,7 +52,8 @@ func (a *Agent) Chat(ctx context.Context, messages []Message, onEvent func(Strea
 		ctx = WithPolicyChecker(ctx, a.policyChecker)
 	}
 
-	const maxRounds = 10 // 防止无限循环
+	const maxRounds = 10    // 防止无限循环
+	const maxResultLen = 32 * 1024 // 工具执行结果最大长度 32KB
 
 	for round := 0; round < maxRounds; round++ {
 		ch, err := a.provider.Chat(ctx, messages, a.tools)
@@ -106,6 +107,11 @@ func (a *Agent) Chat(ctx context.Context, messages []Message, onEvent func(Strea
 			result, err := a.executor.Execute(ctx, tc.Function.Name, tc.Function.Arguments)
 			if err != nil {
 				result = fmt.Sprintf("工具执行错误: %s", err.Error())
+			}
+			if len(result) > maxResultLen {
+				result = result[:2048] + fmt.Sprintf(
+					"\n\n--- 输出被截断 ---\n输出内容过长（%d 字节，超过 %d 字节限制）。请使用更精确的筛选条件、添加 | head 或 | grep 等管道命令缩小输出范围，或分段查询。",
+					len(result), maxResultLen)
 			}
 			messages = append(messages, Message{
 				Role:       RoleTool,

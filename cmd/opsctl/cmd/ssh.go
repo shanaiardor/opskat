@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"github.com/opskat/opskat/internal/ai"
 	"github.com/opskat/opskat/internal/sshpool"
 
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/term"
 )
@@ -45,7 +47,11 @@ func cmdSSHViaProxy(proxy *sshpool.Client, assetID int64) int {
 		fmt.Fprintf(os.Stderr, "Error: failed to set raw terminal: %v\n", err)
 		return 1
 	}
-	defer func() { _ = term.Restore(fd, oldState) }()
+	defer func() {
+		if err := term.Restore(fd, oldState); err != nil {
+			logger.Default().Warn("restore terminal state", zap.Error(err))
+		}
+	}()
 
 	width, height, err := term.GetSize(fd)
 	if err != nil {
@@ -61,7 +67,9 @@ func cmdSSHViaProxy(proxy *sshpool.Client, assetID int64) int {
 		Rows:    height,
 	}, os.Stdin, os.Stdout, resizeCh)
 	if err != nil {
-		_ = term.Restore(fd, oldState)
+		if restoreErr := term.Restore(fd, oldState); restoreErr != nil {
+			logger.Default().Warn("restore terminal state", zap.Error(restoreErr))
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return 1
 	}
@@ -75,14 +83,22 @@ func cmdSSHDirect(ctx context.Context, assetID int64) int {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return 1
 	}
-	defer func() { _ = client.Close() }()
+	defer func() {
+		if err := client.Close(); err != nil {
+			logger.Default().Warn("close SSH client", zap.Error(err))
+		}
+	}()
 
 	session, err := client.NewSession()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to create session: %v\n", err)
 		return 1
 	}
-	defer func() { _ = session.Close() }()
+	defer func() {
+		if err := session.Close(); err != nil {
+			logger.Default().Warn("close SSH session", zap.Error(err))
+		}
+	}()
 
 	fd := int(os.Stdin.Fd())
 	oldState, err := term.MakeRaw(fd)
@@ -90,7 +106,11 @@ func cmdSSHDirect(ctx context.Context, assetID int64) int {
 		fmt.Fprintf(os.Stderr, "Error: failed to set raw terminal: %v\n", err)
 		return 1
 	}
-	defer func() { _ = term.Restore(fd, oldState) }()
+	defer func() {
+		if err := term.Restore(fd, oldState); err != nil {
+			logger.Default().Warn("restore terminal state", zap.Error(err))
+		}
+	}()
 
 	width, height, err := term.GetSize(fd)
 	if err != nil {
@@ -103,7 +123,9 @@ func cmdSSHDirect(ctx context.Context, assetID int64) int {
 		ssh.TTY_OP_OSPEED: 14400,
 	}
 	if err := session.RequestPty("xterm-256color", height, width, modes); err != nil {
-		_ = term.Restore(fd, oldState)
+		if restoreErr := term.Restore(fd, oldState); restoreErr != nil {
+			logger.Default().Warn("restore terminal state", zap.Error(restoreErr))
+		}
 		fmt.Fprintf(os.Stderr, "Error: failed to request PTY: %v\n", err)
 		return 1
 	}
@@ -116,7 +138,9 @@ func cmdSSHDirect(ctx context.Context, assetID int64) int {
 	defer stopResize()
 
 	if err := session.Shell(); err != nil {
-		_ = term.Restore(fd, oldState)
+		if restoreErr := term.Restore(fd, oldState); restoreErr != nil {
+			logger.Default().Warn("restore terminal state", zap.Error(restoreErr))
+		}
 		fmt.Fprintf(os.Stderr, "Error: failed to start shell: %v\n", err)
 		return 1
 	}

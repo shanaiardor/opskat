@@ -267,7 +267,11 @@ func (s *Service) UploadDir(ctx context.Context, transferID, sessionID, localDir
 			return ctx.Err()
 		}
 
-		relPath, _ := filepath.Rel(localDir, path)
+		relPath, err := filepath.Rel(localDir, path)
+		if err != nil {
+			logger.Default().Warn("compute relative path", zap.String("base", localDir), zap.String("path", path), zap.Error(err))
+			return err
+		}
 		remoteFull := remoteDir + "/" + filepath.ToSlash(relPath)
 
 		if d.IsDir() {

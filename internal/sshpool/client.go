@@ -13,12 +13,18 @@ import (
 
 // Client 连接到 SSH 代理 socket 的客户端
 type Client struct {
-	sockPath string
+	sockPath  string
+	authToken string
 }
 
 // NewClient 创建客户端
 func NewClient(sockPath string) *Client {
 	return &Client{sockPath: sockPath}
+}
+
+// NewClientWithToken 创建带认证 token 的客户端
+func NewClientWithToken(sockPath, token string) *Client {
+	return &Client{sockPath: sockPath, authToken: token}
 }
 
 // IsAvailable 检测 proxy socket 是否可连
@@ -233,6 +239,11 @@ func (c *Client) handshake(req ProxyRequest) (net.Conn, *bufio.Reader, error) {
 	conn, err := net.Dial("unix", c.sockPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("cannot connect to desktop app (is it running?): %w", err)
+	}
+
+	// 注入认证 token
+	if c.authToken != "" {
+		req.Token = c.authToken
 	}
 
 	// 发送 JSON 请求

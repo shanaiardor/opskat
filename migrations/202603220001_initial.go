@@ -7,8 +7,8 @@ import (
 	"github.com/opskat/opskat/internal/model/entity/credential_entity"
 	"github.com/opskat/opskat/internal/model/entity/forward_entity"
 	"github.com/opskat/opskat/internal/model/entity/group_entity"
+	"github.com/opskat/opskat/internal/model/entity/host_key_entity"
 	"github.com/opskat/opskat/internal/model/entity/plan_entity"
-	"github.com/opskat/opskat/internal/model/entity/ssh_key_entity"
 
 	"github.com/go-gormigrate/gormigrate/v2"
 	"gorm.io/gorm"
@@ -22,7 +22,6 @@ func migration202603220001() *gormigrate.Migration {
 			return tx.AutoMigrate(
 				&asset_entity.Asset{},
 				&group_entity.Group{},
-				&ssh_key_entity.SSHKey{},
 				&conversation_entity.Conversation{},
 				&conversation_entity.Message{},
 				&audit_entity.AuditLog{},
@@ -31,10 +30,12 @@ func migration202603220001() *gormigrate.Migration {
 				&forward_entity.ForwardConfig{},
 				&forward_entity.ForwardRule{},
 				&credential_entity.Credential{},
+				&host_key_entity.HostKey{},
 			)
 		},
 		Rollback: func(tx *gorm.DB) error {
 			tables := []string{
+				"host_keys",
 				"credentials",
 				"forward_rules",
 				"forward_configs",
@@ -43,7 +44,6 @@ func migration202603220001() *gormigrate.Migration {
 				"audit_logs",
 				"conversation_messages",
 				"conversations",
-				"ssh_keys",
 				"groups",
 				"assets",
 			}

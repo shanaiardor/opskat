@@ -122,16 +122,8 @@ export function AISetupWizard() {
             // Non-blocking: user can install later from settings
           }
         }
-        localStorage.setItem("ai_provider_type", "local_cli");
-        localStorage.setItem("ai_api_base", cliPath);
-        localStorage.setItem("ai_api_key", "");
-        localStorage.setItem("ai_model", cliType);
         await configure("local_cli", cliPath, "", cliType);
       } else {
-        localStorage.setItem("ai_provider_type", "openai");
-        localStorage.setItem("ai_api_base", apiBase);
-        localStorage.setItem("ai_api_key", apiKey);
-        localStorage.setItem("ai_model", model);
         await configure("openai", apiBase, apiKey, model);
       }
       await fetchConversations();

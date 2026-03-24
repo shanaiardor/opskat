@@ -14,6 +14,10 @@ export function CheckForUpdate() {
   return window['go']['main']['App']['CheckForUpdate']();
 }
 
+export function ClearGitHubToken() {
+  return window['go']['main']['App']['ClearGitHubToken']();
+}
+
 export function ConnectSSH(arg1) {
   return window['go']['main']['App']['ConnectSSH'](arg1);
 }
@@ -142,6 +146,10 @@ export function GetDataDir() {
   return window['go']['main']['App']['GetDataDir']();
 }
 
+export function GetGitHubToken() {
+  return window['go']['main']['App']['GetGitHubToken']();
+}
+
 export function GetGitHubUser(arg1) {
   return window['go']['main']['App']['GetGitHubUser'](arg1);
 }
@@ -164,6 +172,10 @@ export function GetSSHPoolConnections() {
 
 export function GetSkillPreview() {
   return window['go']['main']['App']['GetSkillPreview']();
+}
+
+export function GetStoredGitHubUser() {
+  return window['go']['main']['App']['GetStoredGitHubUser']();
 }
 
 export function GetUpdateChannel() {
@@ -236,6 +248,10 @@ export function ListGroups() {
 
 export function ListLocalSSHKeys() {
   return window['go']['main']['App']['ListLocalSSHKeys']();
+}
+
+export function LoadAISetting() {
+  return window['go']['main']['App']['LoadAISetting']();
 }
 
 export function MoveAsset(arg1, arg2) {
@@ -326,8 +342,16 @@ export function SFTPUploadFile(arg1, arg2, arg3) {
   return window['go']['main']['App']['SFTPUploadFile'](arg1, arg2, arg3);
 }
 
+export function SaveAISetting(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SaveAISetting'](arg1, arg2, arg3, arg4);
+}
+
 export function SaveConversationMessages(arg1, arg2) {
   return window['go']['main']['App']['SaveConversationMessages'](arg1, arg2);
+}
+
+export function SaveGitHubToken(arg1, arg2) {
+  return window['go']['main']['App']['SaveGitHubToken'](arg1, arg2);
 }
 
 export function SelectImportFile() {

@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import {
   SendAIMessage,
-  SetAIProvider,
+  SaveAISetting,
+  LoadAISetting,
   DetectLocalCLIs,
   ResetAISession,
   CreateConversation,
@@ -201,7 +202,7 @@ export const useAIStore = create<AIState>((set, get) => {
     localCLIs: [],
 
     configure: async (providerType, apiBase, apiKey, model) => {
-      await SetAIProvider(providerType, apiBase, apiKey, model);
+      await SaveAISetting(providerType, apiBase, apiKey, model);
       set({ configured: true });
     },
 
@@ -631,67 +632,68 @@ registerTabCloseHook((tab) => {
   });
 });
 
-// === Startup: restore AI tab data for tabs already in tabStore ===
+// === Startup: restore AI tab data from backend config ===
 
-const providerType = localStorage.getItem("ai_provider_type");
-if (providerType) {
-  const apiBase = localStorage.getItem("ai_api_base") || "";
-  const apiKey = localStorage.getItem("ai_api_key") || "";
-  const model = localStorage.getItem("ai_model") || "";
-  useAIStore
-    .getState()
-    .configure(providerType, apiBase, apiKey, model)
-    .then(async () => {
-      const store = useAIStore.getState();
-      await store.fetchConversations();
+LoadAISetting()
+  .then(async (info) => {
+    if (!info || !info.configured) {
+      // Not configured, open a new tab (shows setup prompt)
+      useAIStore.getState().openNewConversationTab();
+      return;
+    }
 
-      const tabStore = useTabStore.getState();
-      const aiTabs = tabStore.tabs.filter((t) => t.type === "ai");
+    // Provider already activated by LoadAISetting on backend
+    useAIStore.setState({ configured: true });
 
-      if (aiTabs.length > 0) {
-        // Load messages for existing AI tabs
-        const { conversations } = store;
-        for (const tab of aiTabs) {
-          const meta = tab.meta as AITabMeta;
-          if (meta.conversationId) {
-            // Verify conversation still exists
-            if (!conversations.some((c) => c.ID === meta.conversationId)) {
-              tabStore.closeTab(tab.id);
-              continue;
-            }
-            try {
-              const displayMsgs = await SwitchConversation(meta.conversationId);
-              const messages = convertDisplayMessages(displayMsgs);
-              useAIStore.setState((s) => ({
-                tabStates: { ...s.tabStates, [tab.id]: { messages, sending: false } },
-              }));
-              // Update label from conversation title
-              const conv = conversations.find((c) => c.ID === meta.conversationId);
-              if (conv && conv.Title !== tab.label) {
-                tabStore.updateTab(tab.id, { label: conv.Title, meta: { ...meta, title: conv.Title } });
-              }
-            } catch {
-              tabStore.closeTab(tab.id);
-            }
-          } else {
-            // New conversation tab (unsaved) — just initialize empty state
-            useAIStore.setState((s) => ({
-              tabStates: { ...s.tabStates, [tab.id]: { messages: [], sending: false } },
-            }));
+    const store = useAIStore.getState();
+    await store.fetchConversations();
+
+    const tabStore = useTabStore.getState();
+    const aiTabs = tabStore.tabs.filter((t) => t.type === "ai");
+
+    if (aiTabs.length > 0) {
+      // Load messages for existing AI tabs
+      const { conversations } = store;
+      for (const tab of aiTabs) {
+        const meta = tab.meta as AITabMeta;
+        if (meta.conversationId) {
+          // Verify conversation still exists
+          if (!conversations.some((c) => c.ID === meta.conversationId)) {
+            tabStore.closeTab(tab.id);
+            continue;
           }
-        }
-      } else {
-        // No saved AI tabs, open default
-        const { conversations: convs } = store;
-        if (convs.length > 0) {
-          store.openConversationTab(convs[0].ID).catch(() => {});
+          try {
+            const displayMsgs = await SwitchConversation(meta.conversationId);
+            const messages = convertDisplayMessages(displayMsgs);
+            useAIStore.setState((s) => ({
+              tabStates: { ...s.tabStates, [tab.id]: { messages, sending: false } },
+            }));
+            // Update label from conversation title
+            const conv = conversations.find((c) => c.ID === meta.conversationId);
+            if (conv && conv.Title !== tab.label) {
+              tabStore.updateTab(tab.id, { label: conv.Title, meta: { ...meta, title: conv.Title } });
+            }
+          } catch {
+            tabStore.closeTab(tab.id);
+          }
         } else {
-          store.openNewConversationTab();
+          // New conversation tab (unsaved) — just initialize empty state
+          useAIStore.setState((s) => ({
+            tabStates: { ...s.tabStates, [tab.id]: { messages: [], sending: false } },
+          }));
         }
       }
-    })
-    .catch(() => {});
-} else {
-  // Not configured, open a new tab (shows setup prompt)
-  useAIStore.getState().openNewConversationTab();
-}
+    } else {
+      // No saved AI tabs, open default
+      const { conversations: convs } = store;
+      if (convs.length > 0) {
+        store.openConversationTab(convs[0].ID).catch(() => {});
+      } else {
+        store.openNewConversationTab();
+      }
+    }
+  })
+  .catch(() => {
+    // Failed to load settings, show setup wizard
+    useAIStore.getState().openNewConversationTab();
+  });

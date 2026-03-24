@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
+
 	"github.com/opskat/opskat/internal/model/entity/asset_entity"
 )
 
@@ -64,7 +67,10 @@ func MatchRedisRule(rule, cmd string) bool {
 	// 按首个参数做 glob 匹配（key pattern）
 	ruleFirstArg := strings.Fields(ruleArgs)[0]
 	cmdFirstArg := strings.Fields(cmdArgs)[0]
-	matched, _ := filepath.Match(ruleFirstArg, cmdFirstArg)
+	matched, err := filepath.Match(ruleFirstArg, cmdFirstArg)
+	if err != nil {
+		logger.Default().Warn("redis policy filepath match", zap.String("pattern", ruleFirstArg), zap.Error(err))
+	}
 	return matched
 }
 

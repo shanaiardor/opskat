@@ -1,12 +1,14 @@
 //go:build !windows
 
-package main
+package cmd
 
 import (
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/term"
 )
@@ -25,7 +27,9 @@ func watchTerminalResize(session *ssh.Session, fd int) func() {
 			case <-sigCh:
 				w, h, err := term.GetSize(fd)
 				if err == nil {
-					_ = session.WindowChange(h, w)
+					if err := session.WindowChange(h, w); err != nil {
+						logger.Default().Warn("SSH window change", zap.Error(err))
+					}
 				}
 			case <-done:
 				return

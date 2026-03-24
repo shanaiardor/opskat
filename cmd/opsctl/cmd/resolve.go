@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"github.com/opskat/opskat/internal/repository/asset_repo"
 	"github.com/opskat/opskat/internal/repository/group_repo"
 
+	"github.com/cago-frame/cago/pkg/logger"
+	"go.uber.org/zap"
 	"strconv"
 )
 
@@ -73,7 +75,10 @@ func resolveAsset(ctx context.Context, identifier string) (*asset_entity.Asset, 
 	}
 
 	// Ambiguous - list candidates
-	groupMap, _ := buildGroupPathMap(ctx)
+	groupMap, err := buildGroupPathMap(ctx)
+	if err != nil {
+		logger.Default().Warn("build group path map", zap.Error(err))
+	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "ambiguous name %q, matches:\n", identifier) //nolint:gosec // identifier is from CLI args
 	for _, a := range candidates {

@@ -2,9 +2,8 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Folder } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useAssetStore } from "@/stores/assetStore";
+import { PolicyTagEditor } from "@/components/asset/PolicyTagEditor";
 import { group_entity } from "../../../wailsjs/go/models";
 import { UpdateGroup } from "../../../wailsjs/go/main/App";
 import { toast } from "sonner";
@@ -123,82 +122,28 @@ export function GroupDetail({ group }: GroupDetailProps) {
           </h3>
 
           {/* Allow list */}
-          <div className="grid gap-2 mb-3">
-            <Label className="text-xs">
-              {t("asset.cmdPolicyAllowList")}
-            </Label>
-            <div className="flex flex-wrap gap-1.5 min-h-[24px]">
-              {allowList.map((cmd, i) => (
-                <span
-                  key={i}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-green-500/10 text-green-600 text-xs font-mono"
-                >
-                  {cmd}
-                  <button
-                    type="button"
-                    className="hover:text-destructive"
-                    onClick={() =>
-                      setAllowList(allowList.filter((_, idx) => idx !== i))
-                    }
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-            <Input
-              className="h-7 text-xs font-mono"
-              value={allowInput}
-              onChange={(e) => setAllowInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && allowInput.trim()) {
-                  e.preventDefault();
-                  setAllowList([...allowList, allowInput.trim()]);
-                  setAllowInput("");
-                }
-              }}
-              placeholder={t("asset.cmdPolicyPlaceholder")}
-            />
-          </div>
+          <PolicyTagEditor
+            label={t("asset.cmdPolicyAllowList")}
+            items={allowList}
+            input={allowInput}
+            onInputChange={setAllowInput}
+            onAdd={(val) => setAllowList([...allowList, val])}
+            onRemove={(i) => setAllowList(allowList.filter((_, idx) => idx !== i))}
+            placeholder={t("asset.cmdPolicyPlaceholder")}
+            color="green"
+          />
 
           {/* Deny list */}
-          <div className="grid gap-2 mb-3">
-            <Label className="text-xs">
-              {t("asset.cmdPolicyDenyList")}
-            </Label>
-            <div className="flex flex-wrap gap-1.5 min-h-[24px]">
-              {denyList.map((cmd, i) => (
-                <span
-                  key={i}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-500/10 text-red-600 text-xs font-mono"
-                >
-                  {cmd}
-                  <button
-                    type="button"
-                    className="hover:text-destructive"
-                    onClick={() =>
-                      setDenyList(denyList.filter((_, idx) => idx !== i))
-                    }
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-            <Input
-              className="h-7 text-xs font-mono"
-              value={denyInput}
-              onChange={(e) => setDenyInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && denyInput.trim()) {
-                  e.preventDefault();
-                  setDenyList([...denyList, denyInput.trim()]);
-                  setDenyInput("");
-                }
-              }}
-              placeholder={t("asset.cmdPolicyPlaceholder")}
-            />
-          </div>
+          <PolicyTagEditor
+            label={t("asset.cmdPolicyDenyList")}
+            items={denyList}
+            input={denyInput}
+            onInputChange={setDenyInput}
+            onAdd={(val) => setDenyList([...denyList, val])}
+            onRemove={(i) => setDenyList(denyList.filter((_, idx) => idx !== i))}
+            placeholder={t("asset.cmdPolicyPlaceholder")}
+            color="red"
+          />
 
           <div className="flex items-center justify-between">
             <p className="text-xs text-muted-foreground">

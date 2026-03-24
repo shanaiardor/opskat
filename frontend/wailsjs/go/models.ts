@@ -382,6 +382,8 @@ export namespace forward_entity {
 	    localPort: number;
 	    remoteHost: string;
 	    remotePort: number;
+	    createtime: number;
+	    updatetime: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ForwardRule(source);
@@ -396,6 +398,8 @@ export namespace forward_entity {
 	        this.localPort = source["localPort"];
 	        this.remoteHost = source["remoteHost"];
 	        this.remotePort = source["remotePort"];
+	        this.createtime = source["createtime"];
+	        this.updatetime = source["updatetime"];
 	    }
 	}
 
@@ -410,6 +414,8 @@ export namespace group_entity {
 	    Icon: string;
 	    Description: string;
 	    CmdPolicy: string;
+	    QryPolicy: string;
+	    RdsPolicy: string;
 	    SortOrder: number;
 	    Createtime: number;
 	    Updatetime: number;
@@ -426,6 +432,8 @@ export namespace group_entity {
 	        this.Icon = source["Icon"];
 	        this.Description = source["Description"];
 	        this.CmdPolicy = source["CmdPolicy"];
+	        this.QryPolicy = source["QryPolicy"];
+	        this.RdsPolicy = source["RdsPolicy"];
 	        this.SortOrder = source["SortOrder"];
 	        this.Createtime = source["Createtime"];
 	        this.Updatetime = source["Updatetime"];
@@ -569,6 +577,26 @@ export namespace import_svc {
 
 export namespace main {
 	
+	export class AISettingInfo {
+	    providerType: string;
+	    apiBase: string;
+	    maskedApiKey: string;
+	    model: string;
+	    configured: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AISettingInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.providerType = source["providerType"];
+	        this.apiBase = source["apiBase"];
+	        this.maskedApiKey = source["maskedApiKey"];
+	        this.model = source["model"];
+	        this.configured = source["configured"];
+	    }
+	}
 	export class AuditLogListResult {
 	    items: audit_entity.AuditLog[];
 	    total: number;
@@ -643,6 +671,8 @@ export namespace main {
 	    localPort: number;
 	    remoteHost: string;
 	    remotePort: number;
+	    createtime: number;
+	    updatetime: number;
 	    status: string;
 	    error?: string;
 	
@@ -659,6 +689,8 @@ export namespace main {
 	        this.localPort = source["localPort"];
 	        this.remoteHost = source["remoteHost"];
 	        this.remotePort = source["remotePort"];
+	        this.createtime = source["createtime"];
+	        this.updatetime = source["updatetime"];
 	        this.status = source["status"];
 	        this.error = source["error"];
 	    }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Dialog,
@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { EventsOn, EventsOff } from "../../../wailsjs/runtime/runtime";
+import { useWailsEvent } from "@/hooks/useWailsEvent";
 import { RespondOpsctlApproval, RespondOpsctlApprovalSession } from "../../../wailsjs/go/main/App";
 import { ShieldAlert } from "lucide-react";
 
@@ -36,10 +36,7 @@ export function OpsctlApprovalDialog() {
     setOpen(true);
   }, []);
 
-  useEffect(() => {
-    EventsOn("opsctl:approval", handleEvent);
-    return () => { EventsOff("opsctl:approval"); };
-  }, [handleEvent]);
+  useWailsEvent("opsctl:approval", handleEvent);
 
   const respond = useCallback((approved: boolean) => {
     if (event) {

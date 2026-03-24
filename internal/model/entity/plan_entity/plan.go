@@ -33,9 +33,7 @@ type PlanItem struct {
 	GroupName     string `gorm:"column:group_name;type:varchar(255)"`
 	Command       string `gorm:"column:command;type:text"`
 	Detail        string `gorm:"column:detail;type:text"`
-	Consumed      int    `gorm:"column:consumed;default:0"` // 0=未消费, 1=已消费
-	AuditLogID    int64  `gorm:"column:audit_log_id;default:0"`
-	ConsumedAt    int64  `gorm:"column:consumed_at;default:0"`
+	Createtime    int64  `gorm:"column:createtime"`
 }
 
 // TableName GORM 表名

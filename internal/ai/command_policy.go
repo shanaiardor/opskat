@@ -136,7 +136,11 @@ func (c *CommandPolicyChecker) SubmitPlan(ctx context.Context, assetID int64, pa
 
 	assetName := ""
 	if assetID > 0 {
-		if asset, _ := asset_svc.Asset().Get(ctx, assetID); asset != nil {
+		asset, err := asset_svc.Asset().Get(ctx, assetID)
+		if err != nil {
+			logger.Default().Warn("get asset for plan submission", zap.Int64("assetID", assetID), zap.Error(err))
+		}
+		if asset != nil {
 			assetName = asset.Name
 		}
 	}
@@ -262,7 +266,10 @@ func (c *CommandPolicyChecker) Check(ctx context.Context, assetID int64, command
 	}
 
 	// 2. 获取资产 + 组链
-	asset, _ := asset_svc.Asset().Get(ctx, assetID)
+	asset, err := asset_svc.Asset().Get(ctx, assetID)
+	if err != nil {
+		logger.Default().Warn("get asset for command check", zap.Int64("assetID", assetID), zap.Error(err))
+	}
 	var groups []*group_entity.Group
 	if asset != nil && asset.GroupID > 0 {
 		groups = resolveGroupChain(ctx, asset.GroupID)
@@ -347,7 +354,10 @@ func CheckPolicyOnly(ctx context.Context, assetID int64, command string) CheckRe
 		subCmds = []string{command}
 	}
 
-	asset, _ := asset_svc.Asset().Get(ctx, assetID)
+	asset, err := asset_svc.Asset().Get(ctx, assetID)
+	if err != nil {
+		logger.Default().Warn("get asset for policy check", zap.Int64("assetID", assetID), zap.Error(err))
+	}
 	var groups []*group_entity.Group
 	if asset != nil && asset.GroupID > 0 {
 		groups = resolveGroupChain(ctx, asset.GroupID)
@@ -395,14 +405,8 @@ func (c *CommandPolicyChecker) CheckForAsset(ctx context.Context, assetID int64,
 		if err != nil {
 			logger.Default().Warn("get asset for query policy check", zap.Int64("assetID", assetID), zap.Error(err))
 		}
-		var policy *asset_entity.QueryPolicy
-		if asset != nil {
-			policy, err = asset.GetQueryPolicy()
-			if err != nil {
-				logger.Default().Warn("get query policy", zap.Int64("assetID", assetID), zap.Error(err))
-			}
-		}
-		result := CheckQueryPolicy(policy, stmts)
+		mergedPolicy := collectQueryPolicies(ctx, asset)
+		result := CheckQueryPolicy(mergedPolicy, stmts)
 		if result.Decision == NeedConfirm {
 			return c.handleConfirm(ctx, assetID, asset, command)
 		}
@@ -413,14 +417,8 @@ func (c *CommandPolicyChecker) CheckForAsset(ctx context.Context, assetID int64,
 		if err != nil {
 			logger.Default().Warn("get asset for redis policy check", zap.Int64("assetID", assetID), zap.Error(err))
 		}
-		var policy *asset_entity.RedisPolicy
-		if asset != nil {
-			policy, err = asset.GetRedisPolicy()
-			if err != nil {
-				logger.Default().Warn("get redis policy", zap.Int64("assetID", assetID), zap.Error(err))
-			}
-		}
-		result := CheckRedisPolicy(policy, command)
+		mergedPolicy := collectRedisPolicies(ctx, asset)
+		result := CheckRedisPolicy(mergedPolicy, command)
 		if result.Decision == NeedConfirm {
 			return c.handleConfirm(ctx, assetID, asset, command)
 		}
@@ -762,6 +760,65 @@ func collectPolicies(asset *asset_entity.Asset, groups []*group_entity.Group) []
 		}
 	}
 	return policies
+}
+
+// collectQueryPolicies 收集资产 + 组链的 SQL 权限策略并合并
+func collectQueryPolicies(ctx context.Context, asset *asset_entity.Asset) *asset_entity.QueryPolicy {
+	var policies []*asset_entity.QueryPolicy
+	if asset != nil {
+		if p, err := asset.GetQueryPolicy(); err == nil && p != nil {
+			policies = append(policies, p)
+		}
+		if asset.GroupID > 0 {
+			for _, g := range resolveGroupChain(ctx, asset.GroupID) {
+				if p, err := g.GetQueryPolicy(); err == nil && p != nil {
+					policies = append(policies, p)
+				}
+			}
+		}
+	}
+	if len(policies) == 0 {
+		return nil
+	}
+	// 合并：allow_types 取第一个非空（资产优先），deny_types/deny_flags 全部合并
+	merged := &asset_entity.QueryPolicy{}
+	for _, p := range policies {
+		if len(merged.AllowTypes) == 0 && len(p.AllowTypes) > 0 {
+			merged.AllowTypes = p.AllowTypes
+		}
+		merged.DenyTypes = appendUnique(merged.DenyTypes, p.DenyTypes...)
+		merged.DenyFlags = appendUnique(merged.DenyFlags, p.DenyFlags...)
+	}
+	return merged
+}
+
+// collectRedisPolicies 收集资产 + 组链的 Redis 权限策略并合并
+func collectRedisPolicies(ctx context.Context, asset *asset_entity.Asset) *asset_entity.RedisPolicy {
+	var policies []*asset_entity.RedisPolicy
+	if asset != nil {
+		if p, err := asset.GetRedisPolicy(); err == nil && p != nil {
+			policies = append(policies, p)
+		}
+		if asset.GroupID > 0 {
+			for _, g := range resolveGroupChain(ctx, asset.GroupID) {
+				if p, err := g.GetRedisPolicy(); err == nil && p != nil {
+					policies = append(policies, p)
+				}
+			}
+		}
+	}
+	if len(policies) == 0 {
+		return nil
+	}
+	// 合并：allow_list 取第一个非空（资产优先），deny_list 全部合并
+	merged := &asset_entity.RedisPolicy{}
+	for _, p := range policies {
+		if len(merged.AllowList) == 0 && len(p.AllowList) > 0 {
+			merged.AllowList = p.AllowList
+		}
+		merged.DenyList = appendUnique(merged.DenyList, p.DenyList...)
+	}
+	return merged
 }
 
 func collectDenyRules(policies []*asset_entity.CommandPolicy) []string {

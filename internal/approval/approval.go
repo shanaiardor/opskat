@@ -14,7 +14,8 @@ import (
 
 // ApprovalRequest is sent from opsctl to the desktop app.
 type ApprovalRequest struct {
-	Type        string     `json:"type"` // "exec"|"cp"|"create"|"update"|"plan"
+	Token       string     `json:"token,omitempty"`       // 认证 token
+	Type        string     `json:"type"`                  // "exec"|"cp"|"create"|"update"|"plan"
 	AssetID     int64      `json:"asset_id,omitempty"`
 	AssetName   string     `json:"asset_name,omitempty"`
 	Command     string     `json:"command,omitempty"`
@@ -55,17 +56,19 @@ type ApprovalHandler func(req ApprovalRequest) ApprovalResponse
 
 // Server listens on a Unix socket for approval requests from opsctl.
 type Server struct {
-	handler  ApprovalHandler
-	listener net.Listener
-	done     chan struct{}
-	wg       sync.WaitGroup
+	handler   ApprovalHandler
+	listener  net.Listener
+	done      chan struct{}
+	wg        sync.WaitGroup
+	authToken string // 认证 token，非空时校验
 }
 
 // NewServer creates a new approval server.
-func NewServer(handler ApprovalHandler) *Server {
+func NewServer(handler ApprovalHandler, authToken string) *Server {
 	return &Server{
-		handler: handler,
-		done:    make(chan struct{}),
+		handler:   handler,
+		done:      make(chan struct{}),
+		authToken: authToken,
 	}
 }
 
@@ -91,6 +94,10 @@ func (s *Server) Start(socketPath string) error {
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", socketPath, err)
+	}
+	// 设置 socket 文件权限为 0600（仅所有者可访问）
+	if err := os.Chmod(socketPath, 0600); err != nil {
+		logger.Default().Warn("chmod socket", zap.String("path", socketPath), zap.Error(err))
 	}
 	s.listener = listener
 
@@ -146,6 +153,15 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 
+	// 校验认证 token
+	if s.authToken != "" && req.Token != s.authToken {
+		resp := ApprovalResponse{Approved: false, Reason: "authentication failed"}
+		if err := json.NewEncoder(conn).Encode(resp); err != nil {
+			logger.Default().Warn("encode auth error response", zap.Error(err))
+		}
+		return
+	}
+
 	resp := s.handler(req)
 	if err := json.NewEncoder(conn).Encode(resp); err != nil {
 		logger.Default().Warn("encode approval response", zap.Error(err))
@@ -156,13 +172,19 @@ func (s *Server) handleConn(conn net.Conn) {
 
 // SendNotification sends a data-change notification to the desktop app (fire-and-forget).
 // resource indicates what changed, e.g. "asset".
-func SendNotification(socketPath string, resource string) {
-	if _, err := RequestApproval(socketPath, ApprovalRequest{
+func SendNotification(socketPath, token, resource string) {
+	if _, err := RequestApprovalWithToken(socketPath, token, ApprovalRequest{
 		Type:   "notify",
 		Detail: resource,
 	}); err != nil {
 		logger.Default().Warn("send notification", zap.String("resource", resource), zap.Error(err))
 	}
+}
+
+// RequestApprovalWithToken connects to the Unix socket and sends an approval request with auth token.
+func RequestApprovalWithToken(socketPath, token string, req ApprovalRequest) (ApprovalResponse, error) {
+	req.Token = token
+	return RequestApproval(socketPath, req)
 }
 
 // RequestApproval connects to the Unix socket and sends an approval request.

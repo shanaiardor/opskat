@@ -2,22 +2,12 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Server, Database, Pencil, Trash2, TerminalSquare, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogCancel,
-  AlertDialogAction,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import { useAssetStore } from "@/stores/assetStore";
+import { PolicyTagEditor } from "@/components/asset/PolicyTagEditor";
 import { asset_entity } from "../../../wailsjs/go/models";
 
 interface SSHConfig {
@@ -209,22 +199,15 @@ export function AssetDetail({ asset, isConnecting, onEdit, onDelete, onConnect }
           </Button>
         </div>
       </div>
-      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <AlertDialogContent onOverlayClick={() => setShowDeleteConfirm(false)}>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("asset.deleteAssetTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("asset.deleteAssetDesc", { name: asset.Name })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("action.cancel")}</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={onDelete}>
-              {t("action.delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        onOpenChange={setShowDeleteConfirm}
+        title={t("asset.deleteAssetTitle")}
+        description={t("asset.deleteAssetDesc", { name: asset.Name })}
+        cancelText={t("action.cancel")}
+        confirmText={t("action.delete")}
+        onConfirm={onDelete}
+      />
       <div className="flex-1 p-4 space-y-4 overflow-y-auto">
         {/* SSH Connection Info */}
         {sshConfig && (
@@ -473,68 +456,6 @@ export function AssetDetail({ asset, isConnecting, onEdit, onDelete, onConnect }
           </>
         )}
       </div>
-    </div>
-  );
-}
-
-const TAG_COLORS: Record<string, string> = {
-  green: "bg-green-500/10 text-green-600",
-  red: "bg-red-500/10 text-red-600",
-  orange: "bg-orange-500/10 text-orange-600",
-};
-
-function PolicyTagEditor({
-  label,
-  items,
-  input,
-  onInputChange,
-  onAdd,
-  onRemove,
-  placeholder,
-  color,
-}: {
-  label: string;
-  items: string[];
-  input: string;
-  onInputChange: (v: string) => void;
-  onAdd: (val: string) => void;
-  onRemove: (idx: number) => void;
-  placeholder: string;
-  color: string;
-}) {
-  return (
-    <div className="grid gap-2 mb-3">
-      <Label className="text-xs">{label}</Label>
-      <div className="flex flex-wrap gap-1.5 min-h-[24px]">
-        {items.map((item, i) => (
-          <span
-            key={i}
-            className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-mono", TAG_COLORS[color])}
-          >
-            {item}
-            <button
-              type="button"
-              className="hover:text-destructive"
-              onClick={() => onRemove(i)}
-            >
-              x
-            </button>
-          </span>
-        ))}
-      </div>
-      <Input
-        className="h-7 text-xs font-mono"
-        value={input}
-        onChange={(e) => onInputChange(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && input.trim()) {
-            e.preventDefault();
-            onAdd(input.trim());
-            onInputChange("");
-          }
-        }}
-        placeholder={placeholder}
-      />
     </div>
   );
 }

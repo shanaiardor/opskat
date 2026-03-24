@@ -19,7 +19,8 @@ import (
 
 // ProxyRequest 代理请求（JSON 握手消息）
 type ProxyRequest struct {
-	Op         string `json:"op"` // "exec" | "upload" | "download" | "copy"
+	Token      string `json:"token,omitempty"` // 认证 token
+	Op         string `json:"op"`              // "exec" | "upload" | "download" | "copy"
 	AssetID    int64  `json:"asset_id"`
 	Command    string `json:"command,omitempty"`
 	Cols       int    `json:"cols,omitempty"`
@@ -43,17 +44,19 @@ func SocketPath(dataDir string) string {
 
 // Server SSH 代理 Unix socket 服务端
 type Server struct {
-	pool     *Pool
-	listener net.Listener
-	done     chan struct{}
-	wg       sync.WaitGroup
+	pool      *Pool
+	listener  net.Listener
+	done      chan struct{}
+	wg        sync.WaitGroup
+	authToken string // 认证 token，非空时校验
 }
 
 // NewServer 创建代理服务端
-func NewServer(pool *Pool) *Server {
+func NewServer(pool *Pool, authToken string) *Server {
 	return &Server{
-		pool: pool,
-		done: make(chan struct{}),
+		pool:      pool,
+		done:      make(chan struct{}),
+		authToken: authToken,
 	}
 }
 
@@ -76,6 +79,10 @@ func (s *Server) Start(socketPath string) error {
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", socketPath, err)
+	}
+	// 设置 socket 文件权限为 0600（仅所有者可访问）
+	if err := os.Chmod(socketPath, 0600); err != nil {
+		logger.Default().Warn("chmod socket", zap.String("path", socketPath), zap.Error(err))
 	}
 	s.listener = listener
 
@@ -134,6 +141,12 @@ func (s *Server) handleConn(conn net.Conn) {
 	var req ProxyRequest
 	if err := json.Unmarshal(line, &req); err != nil {
 		writeJSONResponse(conn, false, "invalid request JSON")
+		return
+	}
+
+	// 校验认证 token
+	if s.authToken != "" && req.Token != s.authToken {
+		writeJSONResponse(conn, false, "authentication failed")
 		return
 	}
 

@@ -2,6 +2,7 @@ package forward_repo
 
 import (
 	"context"
+	"time"
 
 	"github.com/opskat/opskat/internal/model/entity/forward_entity"
 
@@ -82,8 +83,11 @@ func (r *forwardRepo) ReplaceRules(ctx context.Context, configID int64, rules []
 	if len(rules) == 0 {
 		return nil
 	}
+	now := time.Now().Unix()
 	for i := range rules {
 		rules[i].ConfigID = configID
+		rules[i].Createtime = now
+		rules[i].Updatetime = now
 	}
 	return db.Ctx(ctx).Create(&rules).Error
 }

@@ -145,6 +145,123 @@ func NewApp() *App {
 	return a
 }
 
+// AISettingInfo AI 配置信息（返回给前端，API Key 已脱敏）
+type AISettingInfo struct {
+	ProviderType string `json:"providerType"`
+	APIBase      string `json:"apiBase"`
+	MaskedAPIKey string `json:"maskedApiKey"`
+	Model        string `json:"model"`
+	Configured   bool   `json:"configured"`
+}
+
+// SaveAISetting 保存 AI 配置（加密 API Key）并激活 provider
+func (a *App) SaveAISetting(providerType, apiBase, apiKey, model string) error {
+	cfg := bootstrap.GetConfig()
+	cfg.AIProviderType = providerType
+	cfg.AIAPIBase = apiBase
+	cfg.AIModel = model
+
+	actualKey := apiKey
+	if apiKey != "" {
+		encrypted, err := credential_svc.Default().Encrypt(apiKey)
+		if err != nil {
+			return fmt.Errorf("加密 API Key 失败: %w", err)
+		}
+		cfg.AIAPIKey = encrypted
+	} else if cfg.AIAPIKey != "" {
+		// 未提供新 key，解密已有 key 用于激活
+		decrypted, err := credential_svc.Default().Decrypt(cfg.AIAPIKey)
+		if err != nil {
+			return fmt.Errorf("解密 API Key 失败: %w", err)
+		}
+		actualKey = decrypted
+	}
+
+	if err := bootstrap.SaveConfig(cfg); err != nil {
+		return fmt.Errorf("保存配置失败: %w", err)
+	}
+
+	return a.SetAIProvider(providerType, apiBase, actualKey, model)
+}
+
+// LoadAISetting 加载已保存的 AI 配置并激活 provider
+func (a *App) LoadAISetting() (*AISettingInfo, error) {
+	cfg := bootstrap.GetConfig()
+	if cfg == nil || cfg.AIProviderType == "" {
+		return &AISettingInfo{Configured: false}, nil
+	}
+
+	info := &AISettingInfo{
+		ProviderType: cfg.AIProviderType,
+		APIBase:      cfg.AIAPIBase,
+		Model:        cfg.AIModel,
+		Configured:   true,
+	}
+
+	var apiKey string
+	if cfg.AIAPIKey != "" {
+		decrypted, err := credential_svc.Default().Decrypt(cfg.AIAPIKey)
+		if err != nil {
+			return nil, fmt.Errorf("解密 API Key 失败: %w", err)
+		}
+		apiKey = decrypted
+		info.MaskedAPIKey = maskAPIKey(decrypted)
+	}
+
+	if err := a.SetAIProvider(cfg.AIProviderType, cfg.AIAPIBase, apiKey, cfg.AIModel); err != nil {
+		return nil, err
+	}
+
+	return info, nil
+}
+
+// SaveGitHubToken 加密保存 GitHub token
+func (a *App) SaveGitHubToken(token, user string) error {
+	cfg := bootstrap.GetConfig()
+	if token == "" {
+		cfg.GitHubToken = ""
+		cfg.GitHubUser = ""
+	} else {
+		encrypted, err := credential_svc.Default().Encrypt(token)
+		if err != nil {
+			return fmt.Errorf("加密 GitHub Token 失败: %w", err)
+		}
+		cfg.GitHubToken = encrypted
+		cfg.GitHubUser = user
+	}
+	return bootstrap.SaveConfig(cfg)
+}
+
+// GetGitHubToken 获取解密后的 GitHub token
+func (a *App) GetGitHubToken() (string, error) {
+	cfg := bootstrap.GetConfig()
+	if cfg.GitHubToken == "" {
+		return "", nil
+	}
+	return credential_svc.Default().Decrypt(cfg.GitHubToken)
+}
+
+// GetStoredGitHubUser 获取保存的 GitHub 用户名
+func (a *App) GetStoredGitHubUser() string {
+	cfg := bootstrap.GetConfig()
+	if cfg == nil {
+		return ""
+	}
+	return cfg.GitHubUser
+}
+
+// ClearGitHubToken 清除保存的 GitHub token
+func (a *App) ClearGitHubToken() error {
+	return a.SaveGitHubToken("", "")
+}
+
+func maskAPIKey(key string) string {
+	if len(key) <= 8 {
+		return "****"
+	}
+	return key[:4] + "****" + key[len(key)-4:]
+}
+
 // SetAIProvider 设置 AI provider 并创建 agent
 func (a *App) SetAIProvider(providerType, apiBase, apiKey, model string) error {
 	a.aiProviderType = providerType
@@ -189,12 +306,20 @@ func (a *App) SetAIProvider(providerType, apiBase, apiKey, model string) error {
 // startup Wails启动回调
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	a.startApprovalServer()
-	a.startSSHPoolServer()
+
+	// 生成 socket 认证 token（每次启动刷新）
+	dataDir := bootstrap.AppDataDir()
+	authToken, err := bootstrap.GenerateAuthToken(dataDir)
+	if err != nil {
+		log.Printf("Failed to generate auth token: %v", err)
+	}
+
+	a.startApprovalServer(authToken)
+	a.startSSHPoolServer(authToken)
 }
 
 // startApprovalServer 启动 opsctl 审批 Unix socket 服务
-func (a *App) startApprovalServer() {
+func (a *App) startApprovalServer(authToken string) {
 	handler := func(req approval.ApprovalRequest) approval.ApprovalResponse {
 		// 数据变更通知：opsctl 通知前端刷新
 		if req.Type == "notify" {
@@ -247,7 +372,7 @@ func (a *App) startApprovalServer() {
 		}
 	}
 
-	srv := approval.NewServer(handler)
+	srv := approval.NewServer(handler, authToken)
 	sockPath := approval.SocketPath(bootstrap.AppDataDir())
 	if err := srv.Start(sockPath); err != nil {
 		log.Printf("Approval server failed to start: %v", err)
@@ -257,10 +382,10 @@ func (a *App) startApprovalServer() {
 }
 
 // startSSHPoolServer 启动 SSH 连接池 proxy 服务
-func (a *App) startSSHPoolServer() {
+func (a *App) startSSHPoolServer(authToken string) {
 	dialer := &appPoolDialer{sshManager: a.sshManager}
 	a.sshPool = sshpool.NewPool(dialer, 5*time.Minute)
-	a.sshProxyServer = sshpool.NewServer(a.sshPool)
+	a.sshProxyServer = sshpool.NewServer(a.sshPool, authToken)
 	sockPath := sshpool.SocketPath(bootstrap.AppDataDir())
 	if err := a.sshProxyServer.Start(sockPath); err != nil {
 		log.Printf("SSH pool server failed to start: %v", err)
@@ -297,7 +422,10 @@ func (d *appPoolDialer) DialAsset(ctx context.Context, assetID int64) (*ssh.Clie
 
 // resolveSSHCredentials 从 SSHConfig 解析凭据（委托给 credential_resolver）
 func (a *App) resolveSSHCredentials(sshCfg *asset_entity.SSHConfig) (password, key string) {
-	p, k, _ := credential_resolver.Default().ResolveSSHCredentials(a.langCtx(), sshCfg)
+	p, k, err := credential_resolver.Default().ResolveSSHCredentials(a.langCtx(), sshCfg)
+	if err != nil {
+		logger.Default().Warn("resolve SSH credentials", zap.Error(err))
+	}
 	return p, k
 }
 
@@ -1312,7 +1440,10 @@ func (a *App) ListLocalSSHKeys() ([]LocalSSHKeyInfo, error) {
 
 // SelectSSHKeyFile 打开文件选择框选择密钥文件，默认定位到 ~/.ssh
 func (a *App) SelectSSHKeyFile() (*LocalSSHKeyInfo, error) {
-	homeDir, _ := os.UserHomeDir()
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		logger.Default().Warn("get user home dir", zap.Error(err))
+	}
 	defaultDir := filepath.Join(homeDir, ".ssh")
 
 	filePath, err := wailsRuntime.OpenFileDialog(a.ctx, wailsRuntime.OpenDialogOptions{
@@ -1432,7 +1563,10 @@ func (a *App) SwitchConversation(id int64) ([]ConversationDisplayMessage, error)
 
 	var displayMsgs []ConversationDisplayMessage
 	for _, msg := range msgs {
-		blocks, _ := msg.GetBlocks()
+		blocks, err := msg.GetBlocks()
+		if err != nil {
+			logger.Default().Warn("get message blocks", zap.Error(err))
+		}
 		displayMsgs = append(displayMsgs, ConversationDisplayMessage{
 			Role:    msg.Role,
 			Content: msg.Content,

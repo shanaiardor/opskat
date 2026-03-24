@@ -9,8 +9,6 @@ import (
 func RunMigrations(db *gorm.DB) error {
 	m := gormigrate.New(db, gormigrate.DefaultOptions, []*gormigrate.Migration{
 		migration202603220001(),
-		migration202603240001(),
-		migration202603240002(),
 	})
 	return m.Migrate()
 }

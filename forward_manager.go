@@ -560,7 +560,10 @@ func (a *App) ListForwardConfigs() ([]ForwardConfigWithStatus, error) {
 
 	result := make([]ForwardConfigWithStatus, 0, len(configs))
 	for _, c := range configs {
-		rules, _ := forward_repo.Forward().ListRulesByConfigID(ctx, c.ID)
+		rules, err := forward_repo.Forward().ListRulesByConfigID(ctx, c.ID)
+		if err != nil {
+			logger.Default().Warn("list forward rules by config ID", zap.Error(err), zap.Int64("configID", c.ID))
+		}
 
 		// 获取资产名
 		assetName := ""

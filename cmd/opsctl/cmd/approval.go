@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"context"
@@ -9,7 +9,9 @@ import (
 	"github.com/opskat/opskat/internal/bootstrap"
 	"github.com/opskat/opskat/internal/repository/plan_repo"
 
+	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // ApprovalResult 审批结果，包含决策来源信息（用于审计）
@@ -58,7 +60,9 @@ func requireApproval(ctx context.Context, req approval.ApprovalRequest) (Approva
 	// Auto-create session if none exists
 	if req.SessionID == "" {
 		id := uuid.New().String()
-		_ = writeActiveSession(id)
+		if err := writeActiveSession(id); err != nil {
+			logger.Default().Warn("write active session", zap.String("sessionID", id), zap.Error(err))
+		}
 		req.SessionID = id
 	}
 
@@ -86,7 +90,13 @@ func requireApproval(ctx context.Context, req approval.ApprovalRequest) (Approva
 	dataDir := bootstrap.AppDataDir()
 	sockPath := approval.SocketPath(dataDir)
 
-	resp, err := approval.RequestApproval(sockPath, req)
+	// 读取认证 token
+	authToken, err := bootstrap.ReadAuthToken(dataDir)
+	if err != nil {
+		logger.Default().Warn("read auth token", zap.Error(err))
+	}
+
+	resp, err := approval.RequestApprovalWithToken(sockPath, authToken, req)
 	if err != nil {
 		return ApprovalResult{}, fmt.Errorf("desktop app is not running -- write operations require approval from the running desktop app\n(%v)", err)
 	}
@@ -104,7 +114,9 @@ func requireApproval(ctx context.Context, req approval.ApprovalRequest) (Approva
 
 	// If the desktop app approved the entire session, persist it locally
 	if resp.ApproveSession && req.SessionID != "" {
-		_ = writeActiveSession(req.SessionID)
+		if err := writeActiveSession(req.SessionID); err != nil {
+			logger.Default().Warn("write active session", zap.String("sessionID", req.SessionID), zap.Error(err))
+		}
 	}
 
 	// 区分是 session 规则自动放行还是用户手动允许

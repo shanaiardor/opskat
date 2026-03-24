@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Dialog,
@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { EventsOn, EventsOff } from "../../../wailsjs/runtime/runtime";
+import { useWailsEvent } from "@/hooks/useWailsEvent";
 import { RespondPlanApprovalWithEdits } from "../../../wailsjs/go/main/App";
 import { ShieldAlert, Server, FolderOpen, Globe } from "lucide-react";
 
@@ -112,10 +112,7 @@ export function PlanApprovalDialog() {
     setOpen(true);
   }, []);
 
-  useEffect(() => {
-    EventsOn("opsctl:plan-approval", handleEvent);
-    return () => { EventsOff("opsctl:plan-approval"); };
-  }, [handleEvent]);
+  useWailsEvent("opsctl:plan-approval", handleEvent);
 
   const respond = useCallback((approved: boolean) => {
     if (event) {

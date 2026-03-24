@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { EventsOn, EventsOff } from "../../../wailsjs/runtime/runtime";
+import { useWailsEvent } from "@/hooks/useWailsEvent";
 import { RespondPermission } from "../../../wailsjs/go/main/App";
 import {
   AlertDialog,
@@ -22,15 +22,11 @@ export function PermissionDialog() {
   const { t } = useTranslation();
   const [request, setRequest] = useState<PermissionRequest | null>(null);
 
-  useEffect(() => {
-    const eventName = "ai:permission";
-    EventsOn(eventName, (req: PermissionRequest) => {
-      setRequest(req);
-    });
-    return () => {
-      EventsOff(eventName);
-    };
+  const handlePermission = useCallback((req: PermissionRequest) => {
+    setRequest(req);
   }, []);
+
+  useWailsEvent("ai:permission", handlePermission);
 
   const respond = (behavior: string) => {
     RespondPermission(behavior, behavior === "deny" ? "用户拒绝" : "");

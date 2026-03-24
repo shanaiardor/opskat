@@ -49,7 +49,11 @@ func StartDeviceFlow() (*DeviceFlowInfo, error) {
 		"client_id": {githubClientID},
 		"scope":     {"gist"},
 	}
-	req, _ := http.NewRequest("POST", "https://github.com/login/device/code", strings.NewReader(data.Encode()))
+	req, err := http.NewRequest("POST", "https://github.com/login/device/code", strings.NewReader(data.Encode()))
+	if err != nil {
+		logger.Default().Warn("create device code request", zap.Error(err))
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
@@ -120,7 +124,11 @@ func pollOnce(deviceCode string) (token string, done bool, err error) {
 		"device_code": {deviceCode},
 		"grant_type":  {"urn:ietf:params:oauth:grant-type:device_code"},
 	}
-	req, _ := http.NewRequest("POST", "https://github.com/login/oauth/access_token", strings.NewReader(data.Encode()))
+	req, err := http.NewRequest("POST", "https://github.com/login/oauth/access_token", strings.NewReader(data.Encode()))
+	if err != nil {
+		logger.Default().Warn("create access token request", zap.Error(err))
+		return "", false, fmt.Errorf("创建请求失败: %w", err)
+	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
@@ -168,7 +176,11 @@ func pollOnce(deviceCode string) (token string, done bool, err error) {
 
 // GetGitHubUser 获取当前用户信息
 func GetGitHubUser(token string) (*GitHubUser, error) {
-	req, _ := http.NewRequest("GET", "https://api.github.com/user", nil)
+	req, err := http.NewRequest("GET", "https://api.github.com/user", nil)
+	if err != nil {
+		logger.Default().Warn("create GitHub user request", zap.Error(err))
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
@@ -270,7 +282,11 @@ func CreateOrUpdateGist(token, gistID string, content []byte) (*GistInfo, error)
 // GetGistContent 读取 Gist 中的备份内容
 func GetGistContent(token, gistID string) ([]byte, error) {
 	apiURL := fmt.Sprintf("https://api.github.com/gists/%s", gistID)
-	req, _ := http.NewRequest("GET", apiURL, nil)
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		logger.Default().Warn("create gist content request", zap.Error(err))
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -309,7 +325,11 @@ func GetGistContent(token, gistID string) ([]byte, error) {
 
 // ListBackupGists 列出用户的 OpsKat 备份 Gist
 func ListBackupGists(token string) ([]*GistInfo, error) {
-	req, _ := http.NewRequest("GET", "https://api.github.com/gists?per_page=100", nil)
+	req, err := http.NewRequest("GET", "https://api.github.com/gists?per_page=100", nil)
+	if err != nil {
+		logger.Default().Warn("create list gists request", zap.Error(err))
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 

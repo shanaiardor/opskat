@@ -27,16 +27,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import { SFTPListDir, SFTPGetwd, SFTPDelete } from "../../../wailsjs/go/main/App";
 import { OnFileDrop, OnFileDropOff } from "../../../wailsjs/runtime/runtime";
@@ -768,30 +759,17 @@ export function FileManagerPanel({
       )}
 
       {/* Delete confirmation */}
-      <AlertDialog
+      <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => {
           if (!open) setDeleteTarget(null);
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("sftp.deleteConfirmTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("sftp.deleteConfirmDesc", { name: deleteTarget?.name })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("action.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={handleDelete}
-            >
-              {t("action.delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title={t("sftp.deleteConfirmTitle")}
+        description={t("sftp.deleteConfirmDesc", { name: deleteTarget?.name })}
+        cancelText={t("action.cancel")}
+        confirmText={t("action.delete")}
+        onConfirm={handleDelete}
+      />
     </>
   );
 }

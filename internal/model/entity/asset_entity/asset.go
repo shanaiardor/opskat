@@ -86,7 +86,6 @@ type SSHConfig struct {
 	PrivateKeys   []string     `json:"private_keys,omitempty"`   // 本地密钥文件路径（向后兼容）
 	JumpHostID    int64        `json:"jump_host_id,omitempty"`
 	Proxy         *ProxyConfig `json:"proxy,omitempty"`
-	LastConnected int64        `json:"last_connected,omitempty"`
 }
 
 // ProxyConfig 代理配置

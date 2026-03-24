@@ -19,8 +19,6 @@ type PlanRepo interface {
 	ListItems(ctx context.Context, sessionID string) ([]*plan_entity.PlanItem, error)
 	// ListApprovedItems 获取某个会话下所有已批准 plan 的 items
 	ListApprovedItems(ctx context.Context, sessionID string) ([]*plan_entity.PlanItem, error)
-	// ConsumeItem 原子消费一个匹配的 plan item，返回是否成功消费
-	ConsumeItem(ctx context.Context, sessionID, toolName string, assetID int64, command string, auditLogID int64) (bool, error)
 }
 
 var defaultPlan PlanRepo
@@ -104,18 +102,3 @@ func (r *planRepo) ListApprovedItems(ctx context.Context, sessionID string) ([]*
 	return items, nil
 }
 
-func (r *planRepo) ConsumeItem(ctx context.Context, sessionID, toolName string, assetID int64, command string, auditLogID int64) (bool, error) {
-	result := db.Ctx(ctx).Model(&plan_entity.PlanItem{}).
-		Where("plan_session_id = ? AND tool_name = ? AND asset_id = ? AND command = ? AND consumed = 0",
-			sessionID, toolName, assetID, command).
-		Limit(1).
-		Updates(map[string]any{
-			"consumed":     1,
-			"consumed_at":  time.Now().Unix(),
-			"audit_log_id": auditLogID,
-		})
-	if result.Error != nil {
-		return false, result.Error
-	}
-	return result.RowsAffected > 0, nil
-}

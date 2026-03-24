@@ -20,6 +20,8 @@ export function CancelSSHConnect(arg1:string):Promise<void>;
 
 export function CheckForUpdate():Promise<update_svc.UpdateInfo>;
 
+export function ClearGitHubToken():Promise<void>;
+
 export function ConnectSSH(arg1:main.SSHConnectRequest):Promise<string>;
 
 export function ConnectSSHAsync(arg1:main.SSHConnectRequest):Promise<string>;
@@ -84,6 +86,8 @@ export function GetCurrentConversationID():Promise<number>;
 
 export function GetDataDir():Promise<string>;
 
+export function GetGitHubToken():Promise<string>;
+
 export function GetGitHubUser(arg1:string):Promise<backup_svc.GitHubUser>;
 
 export function GetGroup(arg1:number):Promise<group_entity.Group>;
@@ -95,6 +99,8 @@ export function GetOpsctlInstallDir():Promise<string>;
 export function GetSSHPoolConnections():Promise<Array<sshpool.PoolEntryInfo>>;
 
 export function GetSkillPreview():Promise<string>;
+
+export function GetStoredGitHubUser():Promise<string>;
 
 export function GetUpdateChannel():Promise<string>;
 
@@ -131,6 +137,8 @@ export function ListForwardConfigs():Promise<Array<main.ForwardConfigWithStatus>
 export function ListGroups():Promise<Array<group_entity.Group>>;
 
 export function ListLocalSSHKeys():Promise<Array<main.LocalSSHKeyInfo>>;
+
+export function LoadAISetting():Promise<main.AISettingInfo>;
 
 export function MoveAsset(arg1:number,arg2:string):Promise<void>;
 
@@ -176,7 +184,11 @@ export function SFTPUploadDir(arg1:string,arg2:string):Promise<string>;
 
 export function SFTPUploadFile(arg1:string,arg2:string,arg3:string):Promise<string>;
 
+export function SaveAISetting(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
 export function SaveConversationMessages(arg1:number,arg2:Array<main.ConversationDisplayMessage>):Promise<void>;
+
+export function SaveGitHubToken(arg1:string,arg2:string):Promise<void>;
 
 export function SelectImportFile():Promise<main.ImportFileInfo>;
 

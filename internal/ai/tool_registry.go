@@ -313,7 +313,10 @@ func argInt64(args map[string]any, key string) int64 {
 		case int64:
 			return n
 		case json.Number:
-			i, _ := n.Int64()
+			i, err := n.Int64()
+			if err != nil {
+				logger.Default().Warn("convert json.Number to int64", zap.String("value", n.String()), zap.Error(err))
+			}
 			return i
 		}
 	}
@@ -636,7 +639,10 @@ func handleUpdateAsset(ctx context.Context, args map[string]any) (string, error)
 
 	switch asset.Type {
 	case asset_entity.AssetTypeSSH:
-		sshCfg, _ := asset.GetSSHConfig()
+		sshCfg, err := asset.GetSSHConfig()
+		if err != nil {
+			logger.Default().Warn("get SSH config for asset update", zap.Error(err))
+		}
 		if sshCfg != nil {
 			if host := argString(args, "host"); host != "" {
 				sshCfg.Host = host
@@ -652,7 +658,10 @@ func handleUpdateAsset(ctx context.Context, args map[string]any) (string, error)
 			}
 		}
 	case asset_entity.AssetTypeDatabase:
-		dbCfg, _ := asset.GetDatabaseConfig()
+		dbCfg, err := asset.GetDatabaseConfig()
+		if err != nil {
+			logger.Default().Warn("get database config for asset update", zap.Error(err))
+		}
 		if dbCfg != nil {
 			if host := argString(args, "host"); host != "" {
 				dbCfg.Host = host
@@ -671,7 +680,10 @@ func handleUpdateAsset(ctx context.Context, args map[string]any) (string, error)
 			}
 		}
 	case asset_entity.AssetTypeRedis:
-		redisCfg, _ := asset.GetRedisConfig()
+		redisCfg, err := asset.GetRedisConfig()
+		if err != nil {
+			logger.Default().Warn("get redis config for asset update", zap.Error(err))
+		}
 		if redisCfg != nil {
 			if host := argString(args, "host"); host != "" {
 				redisCfg.Host = host

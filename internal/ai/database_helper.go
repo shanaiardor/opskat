@@ -178,7 +178,10 @@ func ExecuteSQL(ctx context.Context, db *sql.DB, sqlText string) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("SQL 执行失败: %w", err)
 	}
-	affected, _ := result.RowsAffected()
+	affected, err := result.RowsAffected()
+	if err != nil {
+		logger.Default().Warn("get rows affected", zap.Error(err))
+	}
 	return fmt.Sprintf(`{"affected_rows":%d}`, affected), nil
 }
 

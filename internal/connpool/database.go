@@ -20,13 +20,18 @@ import (
 
 // DialDatabase 创建数据库连接（直连或通过 SSH 隧道）
 func DialDatabase(ctx context.Context, cfg *asset_entity.DatabaseConfig, sshPool *sshpool.Pool) (*sql.DB, io.Closer, error) {
-	password, err := credential_svc.Default().Decrypt(cfg.Password)
-	if err != nil {
-		password = cfg.Password // 可能未加密
+	var password string
+	if cfg.Password != "" {
+		decrypted, err := credential_svc.Default().Decrypt(cfg.Password)
+		if err != nil {
+			return nil, nil, fmt.Errorf("解密数据库密码失败: %w", err)
+		}
+		password = decrypted
 	}
 
 	var db *sql.DB
 	var tunnel *SSHTunnel
+	var err error
 
 	if cfg.SSHAssetID > 0 && sshPool != nil {
 		tunnel = NewSSHTunnel(cfg.SSHAssetID, cfg.Host, cfg.Port, sshPool)

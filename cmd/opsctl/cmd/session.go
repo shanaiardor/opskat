@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"crypto/sha256"
@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 const sessionMaxAge = 24 * time.Hour
@@ -77,7 +79,9 @@ func readActiveSession() string {
 	}
 	// Check expiry by file modification time
 	if time.Since(info.ModTime()) > sessionMaxAge {
-		_ = os.Remove(path)
+		if err := os.Remove(path); err != nil {
+			logger.Default().Warn("remove expired session file", zap.String("path", path), zap.Error(err))
+		}
 		cleanupSessionsDir(dir)
 		return ""
 	}
@@ -163,7 +167,9 @@ func cmdSessionEnd() int {
 
 // cleanupSessionsDir removes sessions/ if empty.
 func cleanupSessionsDir(opscatPath string) {
-	_ = os.Remove(filepath.Join(opscatPath, "sessions"))
+	if err := os.Remove(filepath.Join(opscatPath, "sessions")); err != nil {
+		logger.Default().Warn("remove sessions directory", zap.Error(err))
+	}
 }
 
 func cmdSessionStatus() int {
