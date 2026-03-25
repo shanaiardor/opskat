@@ -2,7 +2,6 @@ package ai
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/cago-frame/cago/pkg/logger"
@@ -67,7 +66,8 @@ func checkSSHPermission(ctx context.Context, assetID int64, command string) Chec
 					assetName = asset.Name
 				}
 				hints := findHintRules(cmd, allAllowRules)
-				msg := formatDenyMessage(assetName, command, "命令被策略禁止执行", hints)
+				reason := policyMsg(ctx, "command blocked by policy", "命令被策略禁止执行")
+				msg := formatDenyMessage(ctx, assetName, command, reason, hints)
 				return CheckResult{Decision: Deny, Message: msg, HintRules: hints, DecisionSource: SourcePolicyDeny, MatchedPattern: rule}
 			}
 		}
@@ -85,7 +85,18 @@ func checkSSHPermission(ctx context.Context, assetID int64, command string) Chec
 		return CheckResult{Decision: Allow, DecisionSource: SourceGrantAllow, MatchedPattern: grantPattern}
 	}
 
-	return CheckResult{Decision: NeedConfirm, HintRules: allAllowRules}
+	// 只返回与命令相似的 allow 规则作为提示
+	var filteredHints []string
+	seen := make(map[string]bool)
+	for _, cmd := range subCmds {
+		for _, h := range findHintRules(cmd, allAllowRules) {
+			if !seen[h] {
+				filteredHints = append(filteredHints, h)
+				seen[h] = true
+			}
+		}
+	}
+	return CheckResult{Decision: NeedConfirm, HintRules: filteredHints}
 }
 
 // --- Database ---
@@ -100,12 +111,12 @@ func checkDatabasePermission(ctx context.Context, assetID int64, sqlText string)
 	// SQL 分类 + 查询策略
 	stmts, err := ClassifyStatements(sqlText)
 	if err != nil {
-		return CheckResult{Decision: Deny, Message: fmt.Sprintf("SQL 解析失败，拒绝执行: %v", err)}
+		return CheckResult{Decision: Deny, Message: policyFmt(ctx, "SQL parse failed, execution denied: %v", "SQL 解析失败，拒绝执行: %v", err)}
 	}
 
 	asset, _ := resolveAssetPolicyChain(ctx, assetID)
 	mergedPolicy := collectQueryPolicies(ctx, asset)
-	result := CheckQueryPolicy(mergedPolicy, stmts)
+	result := CheckQueryPolicy(ctx, mergedPolicy, stmts)
 
 	// 组通用 allow 优先于类型专用的 NeedConfirm
 	if result.Decision == NeedConfirm && groupResult.Decision == Allow {
@@ -141,7 +152,7 @@ func checkRedisPermission(ctx context.Context, assetID int64, command string) Ch
 	// Redis 策略
 	asset, _ := resolveAssetPolicyChain(ctx, assetID)
 	mergedPolicy := collectRedisPolicies(ctx, asset)
-	result := CheckRedisPolicy(mergedPolicy, command)
+	result := CheckRedisPolicy(ctx, mergedPolicy, command)
 
 	// 组通用 allow 优先于类型专用的 NeedConfirm
 	if result.Decision == NeedConfirm && groupResult.Decision == Allow {

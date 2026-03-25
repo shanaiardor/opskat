@@ -1,7 +1,7 @@
 package ai
 
 import (
-	"fmt"
+	"context"
 	"path/filepath"
 	"strings"
 
@@ -75,7 +75,7 @@ func MatchRedisRule(rule, cmd string) bool {
 }
 
 // CheckRedisPolicy 检查 Redis 命令是否符合策略
-func CheckRedisPolicy(policy *asset_entity.RedisPolicy, cmd string) CheckResult {
+func CheckRedisPolicy(ctx context.Context, policy *asset_entity.RedisPolicy, cmd string) CheckResult {
 	merged := mergeRedisPolicy(policy, asset_entity.DefaultRedisPolicy())
 
 	// deny list 检查
@@ -83,7 +83,7 @@ func CheckRedisPolicy(policy *asset_entity.RedisPolicy, cmd string) CheckResult 
 		if MatchRedisRule(rule, cmd) {
 			return CheckResult{
 				Decision:       Deny,
-				Message:        fmt.Sprintf("Redis 命令被策略禁止: %s", cmd),
+				Message:        policyFmt(ctx, "Redis command denied by policy: %s", "Redis 命令被策略禁止: %s", cmd),
 				DecisionSource: SourcePolicyDeny,
 				MatchedPattern: rule,
 			}

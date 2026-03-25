@@ -18,7 +18,12 @@ func HasEmbeddedOpsctl() bool {
 // DefaultInstallDir 返回默认安装目录
 func DefaultInstallDir() string {
 	if runtime.GOOS == "windows" {
-		return filepath.Join(os.Getenv("LOCALAPPDATA"), "opsctl")
+		localAppData := os.Getenv("LOCALAPPDATA")
+		if localAppData == "" {
+			home, _ := os.UserHomeDir()
+			localAppData = filepath.Join(home, "AppData", "Local")
+		}
+		return filepath.Join(localAppData, "opsctl")
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".local", "bin")
@@ -41,7 +46,15 @@ func InstallOpsctl(targetDir string) (string, error) {
 	targetPath := filepath.Join(targetDir, binName)
 
 	if err := os.WriteFile(targetPath, opsctlBinary, 0755); err != nil {
+		if runtime.GOOS == "windows" && os.IsPermission(err) {
+			return "", fmt.Errorf("write binary failed (file may be in use, please close opsctl and retry): %w", err)
+		}
 		return "", fmt.Errorf("write binary failed: %w", err)
+	}
+
+	// Windows: 将安装目录添加到用户 PATH
+	if err := addToUserPath(targetDir); err != nil {
+		return targetPath, fmt.Errorf("installed successfully but failed to add to PATH: %w", err)
 	}
 
 	return targetPath, nil

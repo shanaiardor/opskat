@@ -45,7 +45,7 @@ const VARIANT_CONFIG: Record<
 interface PolicyTagEditorProps {
   label: string;
   items: string[];
-  onAdd?: (val: string) => void;
+  onAdd?: (vals: string[]) => void;
   onRemove?: (idx: number) => void;
   placeholder?: string;
   variant: PolicyVariant;
@@ -69,9 +69,13 @@ export function PolicyTagEditor({
   const readonly = !onAdd || !onRemove;
 
   const handleAdd = () => {
-    const val = input.trim();
-    if (!val || !onAdd) return;
-    onAdd(val);
+    if (!onAdd) return;
+    const vals = input
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (vals.length === 0) return;
+    onAdd(vals);
     setInput("");
   };
 

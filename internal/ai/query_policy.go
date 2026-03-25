@@ -1,14 +1,15 @@
 package ai
 
 import (
+	"context"
 	"fmt"
 	"strings"
-
-	"github.com/opskat/opskat/internal/model/entity/asset_entity"
 
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	_ "github.com/pingcap/tidb/pkg/parser/test_driver"
+
+	"github.com/opskat/opskat/internal/model/entity/asset_entity"
 )
 
 // StatementInfo 解析后的 SQL 语句分类信息
@@ -24,10 +25,10 @@ func ClassifyStatements(sqlText string) ([]StatementInfo, error) {
 	p := parser.New()
 	stmts, _, err := p.Parse(sqlText, "", "")
 	if err != nil {
-		return nil, fmt.Errorf("SQL 解析失败: %w", err)
+		return nil, fmt.Errorf("SQL parse failed: %w", err)
 	}
 	if len(stmts) == 0 {
-		return nil, fmt.Errorf("SQL 为空")
+		return nil, fmt.Errorf("empty SQL")
 	}
 
 	results := make([]StatementInfo, 0, len(stmts))
@@ -104,7 +105,7 @@ func classifyStmt(stmt ast.StmtNode) StatementInfo {
 }
 
 // CheckQueryPolicy 检查 SQL 语句是否符合策略
-func CheckQueryPolicy(policy *asset_entity.QueryPolicy, stmts []StatementInfo) CheckResult {
+func CheckQueryPolicy(ctx context.Context, policy *asset_entity.QueryPolicy, stmts []StatementInfo) CheckResult {
 	merged := mergeQueryPolicy(policy, asset_entity.DefaultQueryPolicy())
 
 	for _, stmt := range stmts {
@@ -113,7 +114,7 @@ func CheckQueryPolicy(policy *asset_entity.QueryPolicy, stmts []StatementInfo) C
 			if strings.EqualFold(stmt.Type, denied) {
 				return CheckResult{
 					Decision:       Deny,
-					Message:        fmt.Sprintf("SQL 语句类型 %s 被策略禁止", stmt.Type),
+					Message:        policyFmt(ctx, "SQL statement type %s denied by policy", "SQL 语句类型 %s 被策略禁止", stmt.Type),
 					DecisionSource: SourcePolicyDeny,
 					MatchedPattern: denied,
 				}
@@ -123,7 +124,7 @@ func CheckQueryPolicy(policy *asset_entity.QueryPolicy, stmts []StatementInfo) C
 		if stmt.Dangerous && containsStr(merged.DenyFlags, stmt.Reason) {
 			return CheckResult{
 				Decision:       Deny,
-				Message:        fmt.Sprintf("SQL 语句被策略禁止: %s (%s)", stmt.Reason, stmt.Raw),
+				Message:        policyFmt(ctx, "SQL statement denied by policy: %s (%s)", "SQL 语句被策略禁止: %s (%s)", stmt.Reason, stmt.Raw),
 				DecisionSource: SourcePolicyDeny,
 				MatchedPattern: stmt.Reason,
 			}
@@ -137,12 +138,12 @@ func CheckQueryPolicy(policy *asset_entity.QueryPolicy, stmts []StatementInfo) C
 }
 
 // CheckQueryPolicyOnly 只检查策略，不触发确认回调
-func CheckQueryPolicyOnly(policy *asset_entity.QueryPolicy, sqlText string) CheckResult {
+func CheckQueryPolicyOnly(ctx context.Context, policy *asset_entity.QueryPolicy, sqlText string) CheckResult {
 	stmts, err := ClassifyStatements(sqlText)
 	if err != nil {
-		return CheckResult{Decision: Deny, Message: fmt.Sprintf("SQL 解析失败，拒绝执行: %v", err)}
+		return CheckResult{Decision: Deny, Message: policyFmt(ctx, "SQL parse failed, execution denied: %v", "SQL 解析失败，拒绝执行: %v", err)}
 	}
-	return CheckQueryPolicy(policy, stmts)
+	return CheckQueryPolicy(ctx, policy, stmts)
 }
 
 func mergeQueryPolicy(custom, defaults *asset_entity.QueryPolicy) *asset_entity.QueryPolicy {

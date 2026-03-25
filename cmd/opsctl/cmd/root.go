@@ -78,6 +78,9 @@ func Execute() int {
 		return 1
 	}
 
+	// CLI 默认使用英文策略消息
+	ctx = ai.WithPolicyLang(ctx, "en")
+
 	// Load app config (MCP port, etc.)
 	resolvedDataDir := *dataDir
 	if resolvedDataDir == "" {
@@ -117,7 +120,7 @@ func Execute() int {
 	case "ssh":
 		return cmdSSH(ctx, args)
 	case "grant":
-		return cmdGrant(ctx, args)
+		return cmdGrant(ctx, args, resolvedSession)
 	case "session":
 		return cmdSession(args)
 	default:

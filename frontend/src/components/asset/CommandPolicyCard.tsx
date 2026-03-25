@@ -14,7 +14,7 @@ export interface PolicyList {
   key: string;
   label: string;
   items: string[];
-  onAdd: (val: string) => void;
+  onAdd: (vals: string[]) => void;
   onRemove: (idx: number) => void;
   placeholder: string;
   variant: PolicyVariant;

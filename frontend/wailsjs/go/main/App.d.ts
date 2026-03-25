@@ -175,6 +175,8 @@ export function RespondGrantApproval(arg1:string,arg2:boolean):Promise<void>;
 
 export function RespondGrantApprovalWithEdits(arg1:string,arg2:boolean,arg3:Array<main.GrantItemEdit>):Promise<void>;
 
+export function RespondHostKeyVerify(arg1:string,arg2:number):Promise<void>;
+
 export function RespondOpsctlApproval(arg1:string,arg2:boolean):Promise<void>;
 
 export function RespondOpsctlApprovalGrant(arg1:string,arg2:boolean,arg3:string,arg4:number,arg5:string,arg6:string):Promise<void>;

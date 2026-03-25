@@ -380,8 +380,8 @@ export function AssetDetail({ asset, isConnecting, onEdit, onDelete, onConnect }
                 key: "allow_list",
                 label: t("asset.cmdPolicyAllowList"),
                 items: allowList,
-                onAdd: (val) => {
-                  const next = [...allowList, val];
+                onAdd: (vals: string[]) => {
+                  const next = [...allowList, ...vals];
                   setAllowList(next);
                   handleSaveSSHPolicy(next, denyList);
                 },
@@ -397,8 +397,8 @@ export function AssetDetail({ asset, isConnecting, onEdit, onDelete, onConnect }
                 key: "deny_list",
                 label: t("asset.cmdPolicyDenyList"),
                 items: denyList,
-                onAdd: (val) => {
-                  const next = [...denyList, val];
+                onAdd: (vals: string[]) => {
+                  const next = [...denyList, ...vals];
                   setDenyList(next);
                   handleSaveSSHPolicy(allowList, next);
                 },
@@ -437,8 +437,8 @@ export function AssetDetail({ asset, isConnecting, onEdit, onDelete, onConnect }
                 key: "allow_types",
                 label: t("asset.queryPolicyAllowTypes"),
                 items: queryAllowTypes,
-                onAdd: (val) => {
-                  const next = [...queryAllowTypes, val];
+                onAdd: (vals: string[]) => {
+                  const next = [...queryAllowTypes, ...vals];
                   setQueryAllowTypes(next);
                   handleSaveQueryPolicy(next, queryDenyTypes, queryDenyFlags);
                 },
@@ -454,8 +454,8 @@ export function AssetDetail({ asset, isConnecting, onEdit, onDelete, onConnect }
                 key: "deny_types",
                 label: t("asset.queryPolicyDenyTypes"),
                 items: queryDenyTypes,
-                onAdd: (val) => {
-                  const next = [...queryDenyTypes, val];
+                onAdd: (vals: string[]) => {
+                  const next = [...queryDenyTypes, ...vals];
                   setQueryDenyTypes(next);
                   handleSaveQueryPolicy(queryAllowTypes, next, queryDenyFlags);
                 },
@@ -471,8 +471,8 @@ export function AssetDetail({ asset, isConnecting, onEdit, onDelete, onConnect }
                 key: "deny_flags",
                 label: t("asset.queryPolicyDenyFlags"),
                 items: queryDenyFlags,
-                onAdd: (val) => {
-                  const next = [...queryDenyFlags, val];
+                onAdd: (vals: string[]) => {
+                  const next = [...queryDenyFlags, ...vals];
                   setQueryDenyFlags(next);
                   handleSaveQueryPolicy(queryAllowTypes, queryDenyTypes, next);
                 },
@@ -512,8 +512,8 @@ export function AssetDetail({ asset, isConnecting, onEdit, onDelete, onConnect }
                 key: "allow_list",
                 label: t("asset.redisPolicyAllowList"),
                 items: redisAllowList,
-                onAdd: (val) => {
-                  const next = [...redisAllowList, val];
+                onAdd: (vals: string[]) => {
+                  const next = [...redisAllowList, ...vals];
                   setRedisAllowList(next);
                   handleSaveRedisPolicy(next, redisDenyList);
                 },
@@ -529,8 +529,8 @@ export function AssetDetail({ asset, isConnecting, onEdit, onDelete, onConnect }
                 key: "deny_list",
                 label: t("asset.redisPolicyDenyList"),
                 items: redisDenyList,
-                onAdd: (val) => {
-                  const next = [...redisDenyList, val];
+                onAdd: (vals: string[]) => {
+                  const next = [...redisDenyList, ...vals];
                   setRedisDenyList(next);
                   handleSaveRedisPolicy(redisAllowList, next);
                 },

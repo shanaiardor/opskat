@@ -2,7 +2,6 @@ package ai
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/opskat/opskat/internal/model/entity/asset_entity"
 	"github.com/opskat/opskat/internal/model/entity/group_entity"
@@ -160,7 +159,7 @@ func testSSHPolicy(ctx context.Context, current *asset_entity.CommandPolicy, gro
 					Decision:       Deny,
 					MatchedPattern: tr.Rule,
 					MatchedSource:  tr.Source,
-					Message:        formatDenyMessage("", command, "命令被策略禁止执行", hints),
+					Message:        formatDenyMessage(ctx, "", command, policyMsg(ctx, "command blocked by policy", "命令被策略禁止执行"), hints),
 				}
 			}
 		}
@@ -192,7 +191,7 @@ func testQueryPolicy(ctx context.Context, current *asset_entity.QueryPolicy, gro
 	// 先检查组通用规则（用 MatchCommandRule，SQL 以动词开头可匹配）
 	groupDeny, groupAllow := collectGroupGenericRules(ctx, groups)
 	if out := checkGenericDeny(groupDeny, command, MatchCommandRule); out != nil {
-		out.Message = fmt.Sprintf("SQL 语句被组策略禁止: %s", command)
+		out.Message = policyFmt(ctx, "SQL statement denied by group policy: %s", "SQL 语句被组策略禁止: %s", command)
 		return *out
 	}
 
@@ -228,7 +227,7 @@ func testQueryPolicy(ctx context.Context, current *asset_entity.QueryPolicy, gro
 	if err != nil {
 		return PolicyTestOutput{
 			Decision: Deny,
-			Message:  fmt.Sprintf("SQL 解析失败，拒绝执行: %v", err),
+			Message:  policyFmt(ctx, "SQL parse failed, execution denied: %v", "SQL 解析失败，拒绝执行: %v", err),
 		}
 	}
 
@@ -241,7 +240,7 @@ func testQueryPolicy(ctx context.Context, current *asset_entity.QueryPolicy, gro
 						Decision:       Deny,
 						MatchedPattern: denied,
 						MatchedSource:  s.name,
-						Message:        fmt.Sprintf("SQL 语句类型 %s 被策略禁止", stmt.Type),
+						Message:        policyFmt(ctx, "SQL statement type %s denied by policy", "SQL 语句类型 %s 被策略禁止", stmt.Type),
 					}
 				}
 			}
@@ -253,7 +252,7 @@ func testQueryPolicy(ctx context.Context, current *asset_entity.QueryPolicy, gro
 						Decision:       Deny,
 						MatchedPattern: stmt.Reason,
 						MatchedSource:  s.name,
-						Message:        fmt.Sprintf("SQL 语句被策略禁止: %s (%s)", stmt.Reason, stmt.Raw),
+						Message:        policyFmt(ctx, "SQL statement denied by policy: %s (%s)", "SQL 语句被策略禁止: %s (%s)", stmt.Reason, stmt.Raw),
 					}
 				}
 			}
@@ -277,7 +276,7 @@ func testRedisPolicy(ctx context.Context, current *asset_entity.RedisPolicy, gro
 	// 先检查组通用规则（用 MatchRedisRule）
 	groupDeny, groupAllow := collectGroupGenericRules(ctx, groups)
 	if out := checkGenericDeny(groupDeny, command, MatchRedisRule); out != nil {
-		out.Message = fmt.Sprintf("Redis 命令被组策略禁止: %s", command)
+		out.Message = policyFmt(ctx, "Redis command denied by group policy: %s", "Redis 命令被组策略禁止: %s", command)
 		return *out
 	}
 
@@ -314,7 +313,7 @@ func testRedisPolicy(ctx context.Context, current *asset_entity.RedisPolicy, gro
 					Decision:       Deny,
 					MatchedPattern: rule,
 					MatchedSource:  s.name,
-					Message:        fmt.Sprintf("Redis 命令被策略禁止: %s", command),
+					Message:        policyFmt(ctx, "Redis command denied by policy: %s", "Redis 命令被策略禁止: %s", command),
 				}
 			}
 		}
@@ -427,7 +426,7 @@ func CheckGroupGenericPolicy(ctx context.Context, assetID int64, command string,
 			if matchFn(rule, command) {
 				return CheckResult{
 					Decision:       Deny,
-					Message:        fmt.Sprintf("命令被组 [%s] 策略禁止: %s", g.Name, command),
+					Message:        policyFmt(ctx, "command denied by group [%s] policy: %s", "命令被组 [%s] 策略禁止: %s", g.Name, command),
 					DecisionSource: SourcePolicyDeny,
 					MatchedPattern: rule,
 				}

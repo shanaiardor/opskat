@@ -3,6 +3,7 @@ import {
   ConnectSSHAsync,
   CancelSSHConnect,
   RespondAuthChallenge,
+  RespondHostKeyVerify,
   DisconnectSSH,
   SplitSSH,
   UpdateAssetPassword,
@@ -58,7 +59,7 @@ export interface ConnectionState {
   assetName: string;
   password: string;
   logs: ConnectionLogEntry[];
-  status: "connecting" | "auth_challenge" | "connected" | "error";
+  status: "connecting" | "auth_challenge" | "host_key_verify" | "connected" | "error";
   currentStep: ConnectionStep;
   error?: string;
   authFailed?: boolean;
@@ -66,6 +67,15 @@ export interface ConnectionState {
     challengeId: string;
     prompts: string[];
     echo: boolean[];
+  };
+  hostKeyVerify?: {
+    verifyId: string;
+    host: string;
+    port: number;
+    keyType: string;
+    fingerprint: string;
+    isChanged: boolean;
+    oldFingerprint?: string;
   };
 }
 
@@ -163,6 +173,15 @@ function setupConnectionListener(
       challengeId?: string;
       prompts?: string[];
       echo?: boolean[];
+      hostKeyVerifyId?: string;
+      hostKeyEvent?: {
+        host: string;
+        port: number;
+        keyType: string;
+        fingerprint: string;
+        isChanged: boolean;
+        oldFingerprint?: string;
+      };
     }) => {
       const state = useTerminalStore.getState();
       const conn = state.connections[connectionId];
@@ -230,6 +249,35 @@ function setupConnectionListener(
             },
           }));
           break;
+
+        case "host_key_verify":
+          useTerminalStore.setState((s) => ({
+            connections: {
+              ...s.connections,
+              [connectionId]: {
+                ...s.connections[connectionId],
+                status: "host_key_verify",
+                hostKeyVerify: {
+                  verifyId: event.hostKeyVerifyId!,
+                  host: event.hostKeyEvent!.host,
+                  port: event.hostKeyEvent!.port,
+                  keyType: event.hostKeyEvent!.keyType,
+                  fingerprint: event.hostKeyEvent!.fingerprint,
+                  isChanged: event.hostKeyEvent!.isChanged,
+                  oldFingerprint: event.hostKeyEvent!.oldFingerprint,
+                },
+                logs: [
+                  ...s.connections[connectionId].logs,
+                  {
+                    message: event.hostKeyEvent!.isChanged ? "警告：主机密钥已变更！" : "等待确认主机密钥...",
+                    timestamp: Date.now(),
+                    type: event.hostKeyEvent!.isChanged ? ("error" as const) : ("info" as const),
+                  },
+                ],
+              },
+            },
+          }));
+          break;
       }
     }
   );
@@ -249,6 +297,7 @@ interface TerminalState {
   // Connection progress actions
   retryConnect: (connectionId: string, password?: string) => void;
   respondChallenge: (connectionId: string, answers: string[]) => void;
+  respondHostKeyVerify: (connectionId: string, action: number) => void;
   cancelConnect: (connectionId: string) => void;
 
   // Split pane actions
@@ -283,7 +332,13 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       const m = t.meta as TerminalTabMeta;
       if (m.assetId !== assetId) return false;
       const conn = get().connections[t.id];
-      return conn && (conn.status === "connecting" || conn.status === "error" || conn.status === "auth_challenge");
+      return (
+        conn &&
+        (conn.status === "connecting" ||
+          conn.status === "error" ||
+          conn.status === "auth_challenge" ||
+          conn.status === "host_key_verify")
+      );
     });
     if (existingTab) {
       tabStore.activateTab(existingTab.id);
@@ -535,6 +590,32 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
           ...s.connections[connectionId],
           status: "connecting",
           challenge: undefined,
+        },
+      },
+    }));
+  },
+
+  respondHostKeyVerify: (connectionId, action) => {
+    const conn = get().connections[connectionId];
+    if (!conn?.hostKeyVerify) return;
+
+    RespondHostKeyVerify(conn.hostKeyVerify.verifyId, action);
+
+    set((s) => ({
+      connections: {
+        ...s.connections,
+        [connectionId]: {
+          ...s.connections[connectionId],
+          status: "connecting",
+          hostKeyVerify: undefined,
+          logs: [
+            ...s.connections[connectionId].logs,
+            {
+              message: action === 2 ? "用户拒绝连接" : "主机密钥已确认",
+              timestamp: Date.now(),
+              type: "info" as const,
+            },
+          ],
         },
       },
     }));

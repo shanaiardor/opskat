@@ -322,6 +322,10 @@ export function RespondGrantApprovalWithEdits(arg1, arg2, arg3) {
   return window['go']['main']['App']['RespondGrantApprovalWithEdits'](arg1, arg2, arg3);
 }
 
+export function RespondHostKeyVerify(arg1, arg2) {
+  return window['go']['main']['App']['RespondHostKeyVerify'](arg1, arg2);
+}
+
 export function RespondOpsctlApproval(arg1, arg2) {
   return window['go']['main']['App']['RespondOpsctlApproval'](arg1, arg2);
 }

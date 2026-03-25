@@ -17,7 +17,7 @@ import { GrantApprovalDialog } from "@/components/approval/GrantApprovalDialog";
 import { useAssetStore } from "@/stores/assetStore";
 import { useTerminalStore } from "@/stores/terminalStore";
 import { useQueryStore } from "@/stores/queryStore";
-import { useTabStore } from "@/stores/tabStore";
+import { useTabStore, type InfoTabMeta } from "@/stores/tabStore";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { asset_entity, group_entity } from "../wailsjs/go/models";
 import { EventsOn, WindowToggleMaximise } from "../wailsjs/runtime/runtime";
@@ -153,23 +153,29 @@ function App() {
   const handleSelectAsset = (asset: asset_entity.Asset) => {
     selectAsset(asset.ID);
     const tabStore = useTabStore.getState();
-    const infoTabId = `info-asset-${asset.ID}`;
-    const existing = tabStore.tabs.find((t) => t.id === infoTabId);
+    const previewTabId = "info-preview";
+    const existing = tabStore.tabs.find((t) => t.id === previewTabId);
+    const meta: InfoTabMeta = {
+      type: "info",
+      targetType: "asset",
+      targetId: asset.ID,
+      name: asset.Name,
+      icon: asset.Icon || undefined,
+    };
     if (existing) {
-      tabStore.activateTab(infoTabId);
+      tabStore.updateTab(previewTabId, {
+        label: asset.Name,
+        icon: asset.Icon || undefined,
+        meta,
+      });
+      tabStore.activateTab(previewTabId);
     } else {
       tabStore.openTab({
-        id: infoTabId,
+        id: previewTabId,
         type: "info",
         label: asset.Name,
         icon: asset.Icon || undefined,
-        meta: {
-          type: "info",
-          targetType: "asset",
-          targetId: asset.ID,
-          name: asset.Name,
-          icon: asset.Icon || undefined,
-        },
+        meta,
       });
     }
   };

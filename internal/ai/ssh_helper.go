@@ -13,6 +13,7 @@ import (
 	"github.com/opskat/opskat/internal/model/entity/asset_entity"
 	"github.com/opskat/opskat/internal/service/asset_svc"
 	"github.com/opskat/opskat/internal/service/credential_resolver"
+	"github.com/opskat/opskat/internal/service/ssh_svc"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -42,7 +43,7 @@ func createSSHClient(cfg *asset_entity.SSHConfig, password, key string) (*ssh.Cl
 	sshConfig := &ssh.ClientConfig{
 		User:            cfg.Username,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: ssh_svc.MakeHostKeyCallback(cfg.Host, cfg.Port, ssh_svc.AutoTrustFirstRejectChangeVerifyFunc()),
 		Timeout:         30 * time.Second,
 	}
 

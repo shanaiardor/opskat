@@ -156,6 +156,9 @@ type ConnectConfig struct {
 	JumpHosts []JumpHostEntry
 	// 代理
 	Proxy *asset_entity.ProxyConfig
+
+	// 主机密钥校验回调（nil 则跳过校验）
+	HostKeyVerifyFunc HostKeyVerifyFunc
 }
 
 // JumpHostEntry 跳板机连接信息
@@ -185,7 +188,7 @@ func (m *Manager) Dial(cfg ConnectConfig) (*ssh.Client, []io.Closer, error) {
 	sshConfig := &ssh.ClientConfig{
 		User:            cfg.Username,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: MakeHostKeyCallback(cfg.Host, cfg.Port, cfg.HostKeyVerifyFunc),
 		Timeout:         30 * time.Second,
 	}
 
@@ -204,7 +207,7 @@ func (m *Manager) Connect(cfg ConnectConfig) (string, error) {
 	sshConfig := &ssh.ClientConfig{
 		User:            cfg.Username,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: MakeHostKeyCallback(cfg.Host, cfg.Port, cfg.HostKeyVerifyFunc),
 		Timeout:         30 * time.Second,
 	}
 
@@ -380,7 +383,7 @@ func (m *Manager) dialViaJumpHosts(cfg ConnectConfig, targetConfig *ssh.ClientCo
 	firstConfig := &ssh.ClientConfig{
 		User:            firstJump.Username,
 		Auth:            firstAuth,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: MakeHostKeyCallback(firstJump.Host, firstJump.Port, cfg.HostKeyVerifyFunc),
 		Timeout:         30 * time.Second,
 	}
 
@@ -429,7 +432,7 @@ func (m *Manager) dialViaJumpHosts(cfg ConnectConfig, targetConfig *ssh.ClientCo
 		jumpConfig := &ssh.ClientConfig{
 			User:            jump.Username,
 			Auth:            jumpAuth,
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			HostKeyCallback: MakeHostKeyCallback(jump.Host, jump.Port, cfg.HostKeyVerifyFunc),
 			Timeout:         30 * time.Second,
 		}
 
@@ -635,7 +638,7 @@ func (m *Manager) TestConnection(cfg ConnectConfig) error {
 	sshConfig := &ssh.ClientConfig{
 		User:            cfg.Username,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: MakeHostKeyCallback(cfg.Host, cfg.Port, cfg.HostKeyVerifyFunc),
 		Timeout:         10 * time.Second,
 	}
 

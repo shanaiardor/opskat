@@ -98,7 +98,7 @@ func handleExecRedis(ctx context.Context, args map[string]any) (string, error) {
 
 func getOrDialRedis(ctx context.Context, assetID int64, cfg *asset_entity.RedisConfig) (*redis.Client, io.Closer, error) {
 	dialFn := func() (*redis.Client, io.Closer, error) {
-		password, err := credential_resolver.Default().ResolveRedisPassword(cfg)
+		password, err := credential_resolver.Default().ResolveRedisPassword(ctx, cfg)
 		if err != nil {
 			return nil, nil, fmt.Errorf("解析凭据失败: %w", err)
 		}

@@ -1,6 +1,17 @@
 import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, RotateCcw, X, Check, KeyRound, Server, Shield, TerminalSquare } from "lucide-react";
+import {
+  Loader2,
+  RotateCcw,
+  X,
+  Check,
+  KeyRound,
+  Server,
+  Shield,
+  TerminalSquare,
+  AlertTriangle,
+  Fingerprint,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTerminalStore, type ConnectionState, type ConnectionStep } from "@/stores/terminalStore";
@@ -27,6 +38,7 @@ export function ConnectionProgress({ connectionId }: ConnectionProgressProps) {
   const connection = useTerminalStore((s) => s.connections[connectionId]) as ConnectionState | undefined;
   const retryConnect = useTerminalStore((s) => s.retryConnect);
   const respondChallenge = useTerminalStore((s) => s.respondChallenge);
+  const respondHostKeyVerify = useTerminalStore((s) => s.respondHostKeyVerify);
   const cancelConnect = useTerminalStore((s) => s.cancelConnect);
 
   if (!connection) {
@@ -39,6 +51,7 @@ export function ConnectionProgress({ connectionId }: ConnectionProgressProps) {
 
   const isError = connection.status === "error";
   const isChallenge = connection.status === "auth_challenge";
+  const isHostKeyVerify = connection.status === "host_key_verify";
   const currentIdx = getStepIndex(connection.currentStep);
 
   return (
@@ -56,7 +69,7 @@ export function ConnectionProgress({ connectionId }: ConnectionProgressProps) {
             const isCurrent = stepIdx === currentIdx;
             const isDone = stepIdx < currentIdx;
             const isFailed = isError && isCurrent;
-            const isWaiting = isChallenge && isCurrent;
+            const isWaiting = (isChallenge || isHostKeyVerify) && isCurrent;
 
             return (
               <div key={step.key} className="flex items-center flex-1 last:flex-none">
@@ -141,7 +154,22 @@ export function ConnectionProgress({ connectionId }: ConnectionProgressProps) {
           )}
           {isError && <p className="text-sm text-destructive">{connection.error}</p>}
           {isChallenge && <p className="text-sm text-yellow-500">{t("ssh.connectProgress.authChallenge")}</p>}
+          {isHostKeyVerify && (
+            <p className={`text-sm ${connection.hostKeyVerify?.isChanged ? "text-destructive" : "text-yellow-500"}`}>
+              {connection.hostKeyVerify?.isChanged
+                ? t("ssh.connectProgress.hostKeyChanged")
+                : t("ssh.connectProgress.hostKeyVerify")}
+            </p>
+          )}
         </div>
+
+        {/* Host key verify form */}
+        {isHostKeyVerify && connection.hostKeyVerify && (
+          <HostKeyVerifyForm
+            hostKey={connection.hostKeyVerify}
+            onAction={(action) => respondHostKeyVerify(connectionId, action)}
+          />
+        )}
 
         {/* Inline auth challenge form */}
         {isChallenge && connection.challenge && (
@@ -246,6 +274,58 @@ function AuthChallengeForm({
       <Button size="sm" onClick={handleSubmit} className="w-full">
         {t("action.submit")}
       </Button>
+    </div>
+  );
+}
+
+function HostKeyVerifyForm({
+  hostKey,
+  onAction,
+}: {
+  hostKey: NonNullable<ConnectionState["hostKeyVerify"]>;
+  onAction: (action: number) => void;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="w-full max-w-sm space-y-3 mb-4">
+      {hostKey.isChanged && (
+        <div className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3">
+          <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+          <p className="text-xs text-destructive">{t("ssh.connectProgress.hostKeyChangedWarning")}</p>
+        </div>
+      )}
+      <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Fingerprint className="h-3.5 w-3.5" />
+          <span>
+            {hostKey.host}:{hostKey.port}
+          </span>
+          <span className="text-muted-foreground/60">({hostKey.keyType})</span>
+        </div>
+        <div className="font-mono text-xs break-all text-foreground">{hostKey.fingerprint}</div>
+        {hostKey.isChanged && hostKey.oldFingerprint && (
+          <div className="border-t pt-2 mt-2">
+            <div className="text-xs text-muted-foreground mb-1">{t("ssh.connectProgress.oldFingerprint")}</div>
+            <div className="font-mono text-xs break-all text-muted-foreground line-through">
+              {hostKey.oldFingerprint}
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" onClick={() => onAction(2)} className="flex-1">
+          <X className="h-3.5 w-3.5 mr-1" />
+          {t("ssh.connectProgress.hostKeyReject")}
+        </Button>
+        <Button size="sm" variant="secondary" onClick={() => onAction(1)} className="flex-1">
+          {t("ssh.connectProgress.hostKeyAcceptOnce")}
+        </Button>
+        <Button size="sm" onClick={() => onAction(0)} className="flex-1">
+          <Check className="h-3.5 w-3.5 mr-1" />
+          {t("ssh.connectProgress.hostKeyAcceptSave")}
+        </Button>
+      </div>
     </div>
   );
 }

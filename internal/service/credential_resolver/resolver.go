@@ -108,7 +108,15 @@ func (r *Resolver) ResolveJumpHosts(ctx context.Context, jumpHostID int64, maxDe
 }
 
 // ResolveDatabasePassword 解密 DatabaseConfig 中的密码
-func (r *Resolver) ResolveDatabasePassword(cfg *asset_entity.DatabaseConfig) (string, error) {
+// 优先使用统一凭证，向后兼容内联密码
+func (r *Resolver) ResolveDatabasePassword(ctx context.Context, cfg *asset_entity.DatabaseConfig) (string, error) {
+	if cfg.CredentialID > 0 {
+		password, err := credential_mgr_svc.GetDecryptedPassword(ctx, cfg.CredentialID)
+		if err != nil {
+			return "", fmt.Errorf("获取数据库凭证失败: %w", err)
+		}
+		return password, nil
+	}
 	if cfg.Password == "" {
 		return "", nil
 	}
@@ -120,7 +128,15 @@ func (r *Resolver) ResolveDatabasePassword(cfg *asset_entity.DatabaseConfig) (st
 }
 
 // ResolveRedisPassword 解密 RedisConfig 中的密码
-func (r *Resolver) ResolveRedisPassword(cfg *asset_entity.RedisConfig) (string, error) {
+// 优先使用统一凭证，向后兼容内联密码
+func (r *Resolver) ResolveRedisPassword(ctx context.Context, cfg *asset_entity.RedisConfig) (string, error) {
+	if cfg.CredentialID > 0 {
+		password, err := credential_mgr_svc.GetDecryptedPassword(ctx, cfg.CredentialID)
+		if err != nil {
+			return "", fmt.Errorf("获取 Redis 凭证失败: %w", err)
+		}
+		return password, nil
+	}
 	if cfg.Password == "" {
 		return "", nil
 	}

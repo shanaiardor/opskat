@@ -119,7 +119,7 @@ func (c *CommandPolicyChecker) SetGrantRequestFunc(fn GrantRequestFunc) {
 // SubmitGrant 提交 grant 审批请求（request_permission 工具调用）
 func (c *CommandPolicyChecker) SubmitGrant(ctx context.Context, assetID int64, patterns []string, reason string) CheckResult {
 	if c.grantRequestFunc == nil {
-		return CheckResult{Decision: Deny, Message: "无 Grant 审批机制"}
+		return CheckResult{Decision: Deny, Message: policyMsg(ctx, "no grant approval mechanism", "无 Grant 审批机制")}
 	}
 
 	assetName := ""
@@ -135,10 +135,10 @@ func (c *CommandPolicyChecker) SubmitGrant(ctx context.Context, assetID int64, p
 
 	approved, finalPatterns := c.grantRequestFunc(assetID, assetName, patterns, reason)
 	if !approved {
-		return CheckResult{Decision: Deny, Message: "用户拒绝 Grant 审批", DecisionSource: SourceGrantDeny, MatchedPattern: strings.Join(patterns, "; ")}
+		return CheckResult{Decision: Deny, Message: policyMsg(ctx, "user denied grant approval", "用户拒绝 Grant 审批"), DecisionSource: SourceGrantDeny, MatchedPattern: strings.Join(patterns, "; ")}
 	}
 
-	return CheckResult{Decision: Allow, Message: fmt.Sprintf("Grant 已批准，共 %d 条模式", len(finalPatterns)), DecisionSource: SourceGrantAllow, MatchedPattern: strings.Join(finalPatterns, "; ")}
+	return CheckResult{Decision: Allow, Message: policyFmt(ctx, "grant approved, %d patterns", "Grant 已批准，共 %d 条模式", len(finalPatterns)), DecisionSource: SourceGrantAllow, MatchedPattern: strings.Join(finalPatterns, "; ")}
 }
 
 // matchGrantPatterns 从 DB 中查找已批准 grant 的 items，用通配匹配命令
@@ -243,7 +243,7 @@ func (c *CommandPolicyChecker) CheckForAsset(ctx context.Context, assetID int64,
 // handleConfirm 处理需要用户确认的情况
 func (c *CommandPolicyChecker) handleConfirm(ctx context.Context, assetID int64, command string) CheckResult {
 	if c.confirmFunc == nil {
-		return CheckResult{Decision: Deny, Message: "命令未授权且无确认机制", DecisionSource: SourcePolicyDeny}
+		return CheckResult{Decision: Deny, Message: policyMsg(ctx, "command not authorized and no confirmation mechanism", "命令未授权且无确认机制"), DecisionSource: SourcePolicyDeny}
 	}
 
 	asset, err := asset_svc.Asset().Get(ctx, assetID)
@@ -257,7 +257,7 @@ func (c *CommandPolicyChecker) handleConfirm(ctx context.Context, assetID int64,
 
 	allowed, alwaysAllow := c.confirmFunc(assetName, command)
 	if !allowed {
-		return CheckResult{Decision: Deny, Message: fmt.Sprintf("用户拒绝执行: %s", command), DecisionSource: SourceUserDeny}
+		return CheckResult{Decision: Deny, Message: policyFmt(ctx, "user denied execution: %s", "用户拒绝执行: %s", command), DecisionSource: SourceUserDeny}
 	}
 	if alwaysAllow {
 		sessionID := GetSessionID(ctx)
@@ -574,19 +574,31 @@ func findHintRules(command string, allowRules []string) []string {
 	return hints
 }
 
-func formatDenyMessage(assetName, command, reason string, hints []string) string {
+func formatDenyMessage(ctx context.Context, assetName, command, reason string, hints []string) string {
 	var sb strings.Builder
 	if assetName != "" {
-		fmt.Fprintf(&sb, "命令执行被拒绝（%s）。\n资产: %s\n命令: %s", reason, assetName, command)
+		if isZh(ctx) {
+			fmt.Fprintf(&sb, "命令执行被拒绝（%s）。\n资产: %s\n命令: %s", reason, assetName, command)
+		} else {
+			fmt.Fprintf(&sb, "Command denied (%s).\nAsset: %s\nCommand: %s", reason, assetName, command)
+		}
 	} else {
-		fmt.Fprintf(&sb, "命令执行被拒绝（%s）。\n命令: %s", reason, command)
+		if isZh(ctx) {
+			fmt.Fprintf(&sb, "命令执行被拒绝（%s）。\n命令: %s", reason, command)
+		} else {
+			fmt.Fprintf(&sb, "Command denied (%s).\nCommand: %s", reason, command)
+		}
 	}
 	if len(hints) > 0 {
-		sb.WriteString("\n\n该资产允许的相关命令格式：\n")
+		sb.WriteString(policyMsg(ctx,
+			"\n\nAllowed command patterns for this asset:\n",
+			"\n\n该资产允许的相关命令格式：\n"))
 		for _, h := range hints {
 			fmt.Fprintf(&sb, "- %s\n", h)
 		}
-		sb.WriteString("\n请按照上述格式调整命令后重试。")
+		sb.WriteString(policyMsg(ctx,
+			"\nPlease adjust the command accordingly and retry.",
+			"\n请按照上述格式调整命令后重试。"))
 	}
 	return sb.String()
 }

@@ -11,18 +11,6 @@ opskat's standalone CLI for asset management and remote operations without the G
 
 /Users/codfrm/Library/Application Support/opskat
 
-## Data Directory
-
-/Users/codfrm/Library/Application Support/opskat
-
-## Data Directory
-
-/Users/codfrm/Library/Application Support/opskat
-
-## Data Directory
-
-/Users/codfrm/Library/Application Support/opskat
-
 ## Global Flags
 
 - `--data-dir <path>` — Override app data directory (default: platform-specific)

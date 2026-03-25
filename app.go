@@ -69,7 +69,7 @@ type ConfirmResponse struct {
 
 // SSHConnectEvent SSH 异步连接进度事件
 type SSHConnectEvent struct {
-	Type        string   `json:"type"`                  // "progress" | "connected" | "error" | "auth_challenge"
+	Type        string   `json:"type"`                  // "progress" | "connected" | "error" | "auth_challenge" | "host_key_verify"
 	Step        string   `json:"step,omitempty"`        // 当前阶段: "resolve" | "connect" | "auth" | "shell"
 	Message     string   `json:"message,omitempty"`     // type=progress 时的进度消息
 	SessionID   string   `json:"sessionId,omitempty"`   // type=connected 时返回的会话ID
@@ -78,32 +78,36 @@ type SSHConnectEvent struct {
 	ChallengeID string   `json:"challengeId,omitempty"` // type=auth_challenge 时的质询ID
 	Prompts     []string `json:"prompts,omitempty"`     // type=auth_challenge 时的提示列表
 	Echo        []bool   `json:"echo,omitempty"`        // type=auth_challenge 时是否回显
+	// host_key_verify 事件
+	HostKeyVerifyID string                `json:"hostKeyVerifyId,omitempty"` // 校验请求ID
+	HostKeyEvent    *ssh_svc.HostKeyEvent `json:"hostKeyEvent,omitempty"`    // 主机密钥事件
 }
 
 // App Wails应用主结构体，替代controller层
 type App struct {
-	ctx                   context.Context
-	lang                  string
-	sshManager            *ssh_svc.Manager
-	sftpService           *sftp_svc.Service
-	forwardManager        *ForwardManager
-	aiAgent               *ai.Agent
-	aiProvider            ai.Provider // 保留 provider 引用，用于权限回调注入
-	githubAuthCancel      context.CancelFunc
-	permissionChan        chan ai.PermissionResponse // 前端权限响应 channel（CLI 工具用）
-	pendingConfirms       sync.Map                   // map[string]chan ConfirmResponse（run_command 确认用）
-	pendingApprovals      sync.Map                   // map[string]chan bool（opsctl 审批用）
-	approvalServer        *approval.Server           // opsctl 审批 Unix socket 服务
-	sshPool               *sshpool.Pool              // opsctl SSH 连接池
-	sshProxyServer        *sshpool.Server            // SSH 连接池 Unix socket 服务
-	shutdownCh            chan struct{}              // 关闭信号，cleanup 时 close 以解除所有阻塞等待
-	pendingAuthResponses  sync.Map                   // map[string]chan []string（keyboard-interactive 认证响应用）
-	pendingConnections    sync.Map                   // map[string]context.CancelFunc（异步连接取消用）
-	mu                    sync.Mutex                 // 保护 connCounter
-	connCounter           int64                      // 连接ID计数器
-	currentConversationID int64                      // 当前活跃会话ID
-	aiProviderType        string                     // 当前 provider 类型
-	aiModel               string                     // 当前模型
+	ctx                     context.Context
+	lang                    string
+	sshManager              *ssh_svc.Manager
+	sftpService             *sftp_svc.Service
+	forwardManager          *ForwardManager
+	aiAgent                 *ai.Agent
+	aiProvider              ai.Provider // 保留 provider 引用，用于权限回调注入
+	githubAuthCancel        context.CancelFunc
+	permissionChan          chan ai.PermissionResponse // 前端权限响应 channel（CLI 工具用）
+	pendingConfirms         sync.Map                   // map[string]chan ConfirmResponse（run_command 确认用）
+	pendingApprovals        sync.Map                   // map[string]chan bool（opsctl 审批用）
+	approvalServer          *approval.Server           // opsctl 审批 Unix socket 服务
+	sshPool                 *sshpool.Pool              // opsctl SSH 连接池
+	sshProxyServer          *sshpool.Server            // SSH 连接池 Unix socket 服务
+	shutdownCh              chan struct{}              // 关闭信号，cleanup 时 close 以解除所有阻塞等待
+	pendingAuthResponses    sync.Map                   // map[string]chan []string（keyboard-interactive 认证响应用）
+	pendingHostKeyResponses sync.Map                   // map[string]chan ssh_svc.HostKeyAction（主机密钥校验响应用）
+	pendingConnections      sync.Map                   // map[string]context.CancelFunc（异步连接取消用）
+	mu                      sync.Mutex                 // 保护 connCounter
+	connCounter             int64                      // 连接ID计数器
+	currentConversationID   int64                      // 当前活跃会话ID
+	aiProviderType          string                     // 当前 provider 类型
+	aiModel                 string                     // 当前模型
 }
 
 // NewApp 创建App实例
@@ -376,16 +380,17 @@ func (d *appPoolDialer) DialAsset(ctx context.Context, assetID int64) (*ssh.Clie
 	}
 
 	cfg := ssh_svc.ConnectConfig{
-		Host:        sshCfg.Host,
-		Port:        sshCfg.Port,
-		Username:    sshCfg.Username,
-		AuthType:    sshCfg.AuthType,
-		Password:    password,
-		Key:         key,
-		PrivateKeys: sshCfg.PrivateKeys,
-		AssetID:     assetID,
-		Proxy:       sshCfg.Proxy,
-		JumpHosts:   jumpHosts,
+		Host:              sshCfg.Host,
+		Port:              sshCfg.Port,
+		Username:          sshCfg.Username,
+		AuthType:          sshCfg.AuthType,
+		Password:          password,
+		Key:               key,
+		PrivateKeys:       sshCfg.PrivateKeys,
+		AssetID:           assetID,
+		Proxy:             sshCfg.Proxy,
+		JumpHosts:         jumpHosts,
+		HostKeyVerifyFunc: ssh_svc.AutoTrustFirstRejectChangeVerifyFunc(),
 	}
 
 	return d.sshManager.Dial(cfg)
@@ -621,7 +626,9 @@ func (a *App) GetLanguage() string {
 
 // langCtx 返回带语言设置的context，每个绑定方法内部调用
 func (a *App) langCtx() context.Context {
-	return i18n.WithLanguage(a.ctx, a.lang)
+	ctx := i18n.WithLanguage(a.ctx, a.lang)
+	ctx = ai.WithPolicyLang(ctx, a.lang)
+	return ctx
 }
 
 // --- 策略测试 ---
@@ -858,17 +865,18 @@ func (a *App) ConnectSSH(req SSHConnectRequest) (string, error) {
 	}
 
 	connectCfg := ssh_svc.ConnectConfig{
-		Host:        sshCfg.Host,
-		Port:        sshCfg.Port,
-		Username:    sshCfg.Username,
-		AuthType:    sshCfg.AuthType,
-		Password:    password,
-		Key:         key,
-		PrivateKeys: sshCfg.PrivateKeys,
-		AssetID:     req.AssetID,
-		Cols:        req.Cols,
-		Rows:        req.Rows,
-		Proxy:       a.decryptProxyPassword(sshCfg.Proxy),
+		Host:              sshCfg.Host,
+		Port:              sshCfg.Port,
+		Username:          sshCfg.Username,
+		AuthType:          sshCfg.AuthType,
+		Password:          password,
+		Key:               key,
+		PrivateKeys:       sshCfg.PrivateKeys,
+		AssetID:           req.AssetID,
+		Cols:              req.Cols,
+		Rows:              req.Rows,
+		Proxy:             a.decryptProxyPassword(sshCfg.Proxy),
+		HostKeyVerifyFunc: ssh_svc.AutoTrustFirstRejectChangeVerifyFunc(),
 		OnData: func(sid string, data []byte) {
 			wailsRuntime.EventsEmit(a.ctx, "ssh:data:"+sid, base64.StdEncoding.EncodeToString(data))
 		},
@@ -1000,6 +1008,27 @@ func (a *App) ConnectSSHAsync(req SSHConnectRequest) (string, error) {
 					return nil, fmt.Errorf("连接已取消")
 				}
 			},
+			HostKeyVerifyFunc: func(event ssh_svc.HostKeyEvent) ssh_svc.HostKeyAction {
+				verifyID := fmt.Sprintf("hk_%s_%d", connectionId, time.Now().UnixNano())
+				emitEvent(SSHConnectEvent{
+					Type:            "host_key_verify",
+					HostKeyVerifyID: verifyID,
+					HostKeyEvent:    &event,
+				})
+
+				ch := make(chan ssh_svc.HostKeyAction, 1)
+				a.pendingHostKeyResponses.Store(verifyID, ch)
+				defer a.pendingHostKeyResponses.Delete(verifyID)
+
+				select {
+				case action := <-ch:
+					return action
+				case <-connCtx.Done():
+					return ssh_svc.HostKeyReject
+				case <-a.shutdownCh:
+					return ssh_svc.HostKeyReject
+				}
+			},
 		}
 
 		// 解析跳板机链
@@ -1040,6 +1069,18 @@ func (a *App) RespondAuthChallenge(challengeID string, answers []string) {
 		ch := v.(chan []string)
 		select {
 		case ch <- answers:
+		default:
+		}
+	}
+}
+
+// RespondHostKeyVerify 前端响应主机密钥校验
+// action: 0=AcceptAndSave, 1=AcceptOnce, 2=Reject
+func (a *App) RespondHostKeyVerify(verifyID string, action int) {
+	if v, ok := a.pendingHostKeyResponses.Load(verifyID); ok {
+		ch := v.(chan ssh_svc.HostKeyAction)
+		select {
+		case ch <- ssh_svc.HostKeyAction(action):
 		default:
 		}
 	}
@@ -1094,14 +1135,15 @@ func (a *App) TestSSHConnection(configJSON string, plainPassword string) error {
 	}
 
 	connectCfg := ssh_svc.ConnectConfig{
-		Host:        sshCfg.Host,
-		Port:        sshCfg.Port,
-		Username:    sshCfg.Username,
-		AuthType:    sshCfg.AuthType,
-		Password:    password,
-		Key:         key,
-		PrivateKeys: sshCfg.PrivateKeys,
-		Proxy:       sshCfg.Proxy,
+		Host:              sshCfg.Host,
+		Port:              sshCfg.Port,
+		Username:          sshCfg.Username,
+		AuthType:          sshCfg.AuthType,
+		Password:          password,
+		Key:               key,
+		PrivateKeys:       sshCfg.PrivateKeys,
+		Proxy:             sshCfg.Proxy,
+		HostKeyVerifyFunc: ssh_svc.AutoTrustFirstRejectChangeVerifyFunc(),
 	}
 
 	// 解析跳板机
@@ -1126,7 +1168,7 @@ func (a *App) TestDatabaseConnection(configJSON string, plainPassword string) er
 	password := plainPassword
 	if password == "" {
 		var err error
-		password, err = credential_resolver.Default().ResolveDatabasePassword(&cfg)
+		password, err = credential_resolver.Default().ResolveDatabasePassword(a.langCtx(), &cfg)
 		if err != nil {
 			return fmt.Errorf("连接失败: %w", err)
 		}
@@ -1162,7 +1204,7 @@ func (a *App) TestRedisConnection(configJSON string, plainPassword string) error
 	password := plainPassword
 	if password == "" {
 		var err error
-		password, err = credential_resolver.Default().ResolveRedisPassword(&cfg)
+		password, err = credential_resolver.Default().ResolveRedisPassword(a.langCtx(), &cfg)
 		if err != nil {
 			return fmt.Errorf("连接失败: %w", err)
 		}
@@ -1204,7 +1246,7 @@ func (a *App) ExecuteSQL(assetID int64, sqlText string, database string) (string
 	if database != "" {
 		cfg.Database = database
 	}
-	password, err := credential_resolver.Default().ResolveDatabasePassword(cfg)
+	password, err := credential_resolver.Default().ResolveDatabasePassword(a.langCtx(), cfg)
 	if err != nil {
 		return "", fmt.Errorf("解析凭据失败: %w", err)
 	}
@@ -1244,7 +1286,7 @@ func (a *App) ExecuteRedis(assetID int64, command string, db int) (string, error
 		return "", fmt.Errorf("获取 Redis 配置失败: %w", err)
 	}
 	cfg.Database = db
-	password, err := credential_resolver.Default().ResolveRedisPassword(cfg)
+	password, err := credential_resolver.Default().ResolveRedisPassword(a.langCtx(), cfg)
 	if err != nil {
 		return "", fmt.Errorf("解析凭据失败: %w", err)
 	}
@@ -1284,7 +1326,7 @@ func (a *App) ExecuteRedisArgs(assetID int64, args []string, db int) (string, er
 		return "", fmt.Errorf("获取 Redis 配置失败: %w", err)
 	}
 	cfg.Database = db
-	password, err := credential_resolver.Default().ResolveRedisPassword(cfg)
+	password, err := credential_resolver.Default().ResolveRedisPassword(a.langCtx(), cfg)
 	if err != nil {
 		return "", fmt.Errorf("解析凭据失败: %w", err)
 	}

@@ -80,7 +80,7 @@ func TestCheckPolicyOnlyHintRules(t *testing.T) {
 	Convey("CheckPolicyOnly returns HintRules on NeedConfirm", t, func() {
 		ctx, mockRepo, _ := setupPolicyTest(t)
 
-		Convey("NeedConfirm with allow rules", func() {
+		Convey("NeedConfirm with allow rules returns only similar hints", func() {
 			asset := &asset_entity.Asset{
 				ID:   1,
 				Type: asset_entity.AssetTypeSSH,
@@ -92,9 +92,10 @@ func TestCheckPolicyOnlyHintRules(t *testing.T) {
 
 			result := CheckPolicyOnly(ctx, 1, "systemctl restart nginx")
 			So(result.Decision, ShouldEqual, NeedConfirm)
-			So(result.HintRules, ShouldContain, "ls *")
-			So(result.HintRules, ShouldContain, "cat *")
+			// 只返回与命令程序名匹配的提示（systemctl），不返回 ls/cat
 			So(result.HintRules, ShouldContain, "systemctl status *")
+			So(result.HintRules, ShouldNotContain, "ls *")
+			So(result.HintRules, ShouldNotContain, "cat *")
 		})
 
 		Convey("Allow returns no HintRules", func() {

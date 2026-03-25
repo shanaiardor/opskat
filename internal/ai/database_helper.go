@@ -120,7 +120,7 @@ func handleExecSQL(ctx context.Context, args map[string]any) (string, error) {
 
 func getOrDialDatabase(ctx context.Context, assetID int64, cfg *asset_entity.DatabaseConfig) (*sql.DB, io.Closer, error) {
 	dialFn := func() (*sql.DB, io.Closer, error) {
-		password, err := credential_resolver.Default().ResolveDatabasePassword(cfg)
+		password, err := credential_resolver.Default().ResolveDatabasePassword(ctx, cfg)
 		if err != nil {
 			return nil, nil, fmt.Errorf("解析凭据失败: %w", err)
 		}

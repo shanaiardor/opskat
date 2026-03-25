@@ -367,7 +367,8 @@ export function PolicyGroupManager({ open, onOpenChange, onGroupsChanged, initia
                       onAdd={
                         editState.readonly
                           ? undefined
-                          : (val) => updatePolicyField("allow_types", [...(editState.policy.allow_types || []), val])
+                          : (vals: string[]) =>
+                              updatePolicyField("allow_types", [...(editState.policy.allow_types || []), ...vals])
                       }
                       onRemove={
                         editState.readonly
@@ -388,7 +389,8 @@ export function PolicyGroupManager({ open, onOpenChange, onGroupsChanged, initia
                         onAdd={
                           editState.readonly
                             ? undefined
-                            : (val) => updatePolicyField("deny_types", [...(editState.policy.deny_types || []), val])
+                            : (vals: string[]) =>
+                                updatePolicyField("deny_types", [...(editState.policy.deny_types || []), ...vals])
                         }
                         onRemove={
                           editState.readonly
@@ -408,7 +410,8 @@ export function PolicyGroupManager({ open, onOpenChange, onGroupsChanged, initia
                         onAdd={
                           editState.readonly
                             ? undefined
-                            : (val) => updatePolicyField("deny_flags", [...(editState.policy.deny_flags || []), val])
+                            : (vals: string[]) =>
+                                updatePolicyField("deny_flags", [...(editState.policy.deny_flags || []), ...vals])
                         }
                         onRemove={
                           editState.readonly
@@ -432,7 +435,8 @@ export function PolicyGroupManager({ open, onOpenChange, onGroupsChanged, initia
                       onAdd={
                         editState.readonly
                           ? undefined
-                          : (val) => updatePolicyField("allow_list", [...(editState.policy.allow_list || []), val])
+                          : (vals: string[]) =>
+                              updatePolicyField("allow_list", [...(editState.policy.allow_list || []), ...vals])
                       }
                       onRemove={
                         editState.readonly
@@ -452,7 +456,8 @@ export function PolicyGroupManager({ open, onOpenChange, onGroupsChanged, initia
                       onAdd={
                         editState.readonly
                           ? undefined
-                          : (val) => updatePolicyField("deny_list", [...(editState.policy.deny_list || []), val])
+                          : (vals: string[]) =>
+                              updatePolicyField("deny_list", [...(editState.policy.deny_list || []), ...vals])
                       }
                       onRemove={
                         editState.readonly

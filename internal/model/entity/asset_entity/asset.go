@@ -99,27 +99,29 @@ type ProxyConfig struct {
 
 // DatabaseConfig 数据库类型的特定配置
 type DatabaseConfig struct {
-	Driver     DatabaseDriver `json:"driver"`
-	Host       string         `json:"host"`
-	Port       int            `json:"port"`
-	Username   string         `json:"username"`
-	Password   string         `json:"password,omitempty"`     // credential_svc 加密
-	Database   string         `json:"database,omitempty"`     // 默认数据库
-	SSLMode    string         `json:"ssl_mode,omitempty"`     // postgresql: disable/require/verify-full
-	Params     string         `json:"params,omitempty"`       // 额外连接参数
-	ReadOnly   bool           `json:"read_only,omitempty"`    // 连接级只读
-	SSHAssetID int64          `json:"ssh_asset_id,omitempty"` // 0=直连, >0=SSH隧道
+	Driver       DatabaseDriver `json:"driver"`
+	Host         string         `json:"host"`
+	Port         int            `json:"port"`
+	Username     string         `json:"username"`
+	Password     string         `json:"password,omitempty"`      // credential_svc 加密（内联，向后兼容）
+	CredentialID int64          `json:"credential_id,omitempty"` // 统一凭证 ID（密码）
+	Database     string         `json:"database,omitempty"`      // 默认数据库
+	SSLMode      string         `json:"ssl_mode,omitempty"`      // postgresql: disable/require/verify-full
+	Params       string         `json:"params,omitempty"`        // 额外连接参数
+	ReadOnly     bool           `json:"read_only,omitempty"`     // 连接级只读
+	SSHAssetID   int64          `json:"ssh_asset_id,omitempty"`  // 0=直连, >0=SSH隧道
 }
 
 // RedisConfig Redis类型的特定配置
 type RedisConfig struct {
-	Host       string `json:"host"`
-	Port       int    `json:"port"`
-	Username   string `json:"username,omitempty"`
-	Password   string `json:"password,omitempty"`
-	Database   int    `json:"database,omitempty"` // DB index
-	TLS        bool   `json:"tls,omitempty"`
-	SSHAssetID int64  `json:"ssh_asset_id,omitempty"`
+	Host         string `json:"host"`
+	Port         int    `json:"port"`
+	Username     string `json:"username,omitempty"`
+	Password     string `json:"password,omitempty"`
+	CredentialID int64  `json:"credential_id,omitempty"` // 统一凭证 ID（密码）
+	Database     int    `json:"database,omitempty"`      // DB index
+	TLS          bool   `json:"tls,omitempty"`
+	SSHAssetID   int64  `json:"ssh_asset_id,omitempty"`
 }
 
 // QueryPolicy SQL 权限策略（类型别名，定义在 policy 包）

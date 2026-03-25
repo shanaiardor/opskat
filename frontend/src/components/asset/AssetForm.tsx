@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Trash2, Eye, EyeOff, FolderOpen, Loader2, PlugZap } from "lucide-react";
+import { Trash2, FolderOpen, Loader2, PlugZap } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { IconPicker } from "@/components/asset/IconPicker";
 import { AssetSelect } from "@/components/asset/AssetSelect";
 import { GroupSelect } from "@/components/asset/GroupSelect";
+import { PasswordSourceField } from "@/components/asset/PasswordSourceField";
 import { useAssetStore } from "@/stores/assetStore";
 import { asset_entity, credential_entity } from "../../../wailsjs/go/models";
 import {
@@ -58,6 +59,7 @@ interface DatabaseConfig {
   port: number;
   username: string;
   password?: string;
+  credential_id?: number;
   database?: string;
   ssl_mode?: string;
   params?: string;
@@ -70,6 +72,7 @@ interface RedisConfig {
   port: number;
   username?: string;
   password?: string;
+  credential_id?: number;
   tls?: boolean;
   ssh_asset_id?: number;
 }
@@ -114,8 +117,10 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
 
   // Auth fields
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [encryptedPassword, setEncryptedPassword] = useState("");
+  const [passwordSource, setPasswordSource] = useState<"inline" | "managed">("inline");
+  const [passwordCredentialId, setPasswordCredentialId] = useState(0);
+  const [managedPasswords, setManagedPasswords] = useState<credential_entity.Credential[]>([]);
   const [keySource, setKeySource] = useState<"managed" | "file">("managed");
   const [credentialId, setCredentialId] = useState(0);
   const [managedKeys, setManagedKeys] = useState<credential_entity.Credential[]>([]);
@@ -147,12 +152,15 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
   // Exclude self from jump host / SSH tunnel selection
   const jumpHostExcludeIds = editAsset?.ID ? [editAsset.ID] : undefined;
 
-  // Load managed keys and scan local keys when dialog opens (for SSH type)
+  // Load managed keys/passwords and scan local keys when dialog opens
   useEffect(() => {
     if (open) {
       ListCredentialsByType("ssh_key")
         .then((keys) => setManagedKeys(keys || []))
         .catch(() => setManagedKeys([]));
+      ListCredentialsByType("password")
+        .then((passwords) => setManagedPasswords(passwords || []))
+        .catch(() => setManagedPasswords([]));
       setScanningKeys(true);
       ListLocalSSHKeys()
         .then((keys) => setLocalKeys(keys || []))
@@ -201,9 +209,17 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
 
       setEncryptedPassword(cfg.password || "");
       setPassword("");
+      // 密码认证时检查是否使用托管密码
+      if (cfg.auth_type === "password" && cfg.credential_id) {
+        setPasswordSource("managed");
+        setPasswordCredentialId(cfg.credential_id);
+      } else {
+        setPasswordSource("inline");
+        setPasswordCredentialId(0);
+      }
       // 向后兼容：如果有 private_keys 字段则是文件模式，否则是托管模式
       setKeySource(cfg.private_keys && cfg.private_keys.length > 0 ? "file" : "managed");
-      setCredentialId(cfg.credential_id || 0);
+      setCredentialId(cfg.auth_type === "key" ? cfg.credential_id || 0 : 0);
       setSelectedKeyPaths(cfg.private_keys || []);
       setJumpHostId(cfg.jump_host_id || 0);
 
@@ -243,8 +259,17 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
       setDbSshAssetId(cfg.ssh_asset_id || 0);
       setParams(cfg.params || "");
 
-      setEncryptedPassword(cfg.password || "");
-      setPassword("");
+      if (cfg.credential_id) {
+        setPasswordSource("managed");
+        setPasswordCredentialId(cfg.credential_id);
+        setEncryptedPassword("");
+        setPassword("");
+      } else {
+        setPasswordSource("inline");
+        setPasswordCredentialId(0);
+        setEncryptedPassword(cfg.password || "");
+        setPassword("");
+      }
     } catch {
       resetDatabaseFields();
     }
@@ -259,8 +284,17 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
       setTls(cfg.tls || false);
       setRedisSshAssetId(cfg.ssh_asset_id || 0);
 
-      setEncryptedPassword(cfg.password || "");
-      setPassword("");
+      if (cfg.credential_id) {
+        setPasswordSource("managed");
+        setPasswordCredentialId(cfg.credential_id);
+        setEncryptedPassword("");
+        setPassword("");
+      } else {
+        setPasswordSource("inline");
+        setPasswordCredentialId(0);
+        setEncryptedPassword(cfg.password || "");
+        setPassword("");
+      }
     } catch {
       resetRedisFields();
     }
@@ -281,8 +315,10 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
     setUsername("root");
     setAuthType("password");
     setPassword("");
-    setShowPassword(false);
+
     setEncryptedPassword("");
+    setPasswordSource("inline");
+    setPasswordCredentialId(0);
     setKeySource("managed");
     setCredentialId(0);
     setSelectedKeyPaths([]);
@@ -296,8 +332,10 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
     setPort(3306);
     setUsername("");
     setPassword("");
-    setShowPassword(false);
+
     setEncryptedPassword("");
+    setPasswordSource("inline");
+    setPasswordCredentialId(0);
     setDriver("mysql");
     setDatabase("");
     setSslMode("disable");
@@ -311,8 +349,10 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
     setPort(6379);
     setUsername("");
     setPassword("");
-    setShowPassword(false);
+
     setEncryptedPassword("");
+    setPasswordSource("inline");
+    setPasswordCredentialId(0);
     setTls(false);
     setRedisSshAssetId(0);
   };
@@ -321,8 +361,10 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
     if (newType === assetType) return;
     setAssetType(newType);
     setPassword("");
-    setShowPassword(false);
+
     setEncryptedPassword("");
+    setPasswordSource("inline");
+    setPasswordCredentialId(0);
 
     if (newType === "ssh") {
       setPort(22);
@@ -460,10 +502,14 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
         auth_type: authType,
       };
 
-      if (authType === "password" && password) {
-        const encrypted = await encryptPassword();
-        if (encrypted === undefined) return;
-        sshConfig.password = encrypted;
+      if (authType === "password") {
+        if (passwordSource === "managed" && passwordCredentialId > 0) {
+          sshConfig.credential_id = passwordCredentialId;
+        } else {
+          const encrypted = await encryptPassword();
+          if (encrypted === undefined) return;
+          if (encrypted) sshConfig.password = encrypted;
+        }
       }
 
       if (authType === "key") {
@@ -484,15 +530,19 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
       }
       config = JSON.stringify(sshConfig);
     } else if (assetType === "database") {
-      const encrypted = await encryptPassword();
-      if (encrypted === undefined) return;
       const dbConfig: DatabaseConfig = {
         driver,
         host,
         port,
         username,
       };
-      if (encrypted) dbConfig.password = encrypted;
+      if (passwordSource === "managed" && passwordCredentialId > 0) {
+        dbConfig.credential_id = passwordCredentialId;
+      } else {
+        const encrypted = await encryptPassword();
+        if (encrypted === undefined) return;
+        if (encrypted) dbConfig.password = encrypted;
+      }
       if (database) dbConfig.database = database;
       if (driver === "postgresql" && sslMode !== "disable") dbConfig.ssl_mode = sslMode;
       if (readOnly) dbConfig.read_only = true;
@@ -500,14 +550,18 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
       if (params) dbConfig.params = params;
       config = JSON.stringify(dbConfig);
     } else if (assetType === "redis") {
-      const encrypted = await encryptPassword();
-      if (encrypted === undefined) return;
       const redisConfig: RedisConfig = {
         host,
         port,
       };
       if (username) redisConfig.username = username;
-      if (encrypted) redisConfig.password = encrypted;
+      if (passwordSource === "managed" && passwordCredentialId > 0) {
+        redisConfig.credential_id = passwordCredentialId;
+      } else {
+        const encrypted = await encryptPassword();
+        if (encrypted === undefined) return;
+        if (encrypted) redisConfig.password = encrypted;
+      }
       if (tls) redisConfig.tls = true;
       if (redisSshAssetId > 0) redisConfig.ssh_asset_id = redisSshAssetId;
       config = JSON.stringify(redisConfig);
@@ -771,52 +825,31 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
 
           {/* SSH: Password (when auth_type=password) */}
           {assetType === "ssh" && authType === "password" && (
-            <div className="grid gap-2">
-              <Label>{t("asset.password")}</Label>
-              <div className="relative">
-                <Input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={encryptedPassword ? t("asset.passwordUnchanged") : t("asset.passwordPlaceholder")}
-                  className="pr-9"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                </Button>
-              </div>
-            </div>
+            <PasswordSourceField
+              source={passwordSource}
+              onSourceChange={setPasswordSource}
+              password={password}
+              onPasswordChange={setPassword}
+              credentialId={passwordCredentialId}
+              onCredentialIdChange={setPasswordCredentialId}
+              managedPasswords={managedPasswords}
+              placeholder={t("asset.passwordPlaceholder")}
+              hasExistingPassword={!!encryptedPassword}
+            />
           )}
 
           {/* Database / Redis: Password */}
           {(assetType === "database" || assetType === "redis") && (
-            <div className="grid gap-2">
-              <Label>{t("asset.password")}</Label>
-              <div className="relative">
-                <Input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={encryptedPassword ? t("asset.passwordUnchanged") : ""}
-                  className="pr-9"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                </Button>
-              </div>
-            </div>
+            <PasswordSourceField
+              source={passwordSource}
+              onSourceChange={setPasswordSource}
+              password={password}
+              onPasswordChange={setPassword}
+              credentialId={passwordCredentialId}
+              onCredentialIdChange={setPasswordCredentialId}
+              managedPasswords={managedPasswords}
+              hasExistingPassword={!!encryptedPassword}
+            />
           )}
 
           {/* SSH: Key config */}

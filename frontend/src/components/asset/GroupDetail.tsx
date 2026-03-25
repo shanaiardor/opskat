@@ -111,8 +111,8 @@ export function GroupDetail({ group }: GroupDetailProps) {
               key: "allow_list",
               label: t("asset.cmdPolicyAllowList"),
               items: allowList,
-              onAdd: (val) => {
-                const next = [...allowList, val];
+              onAdd: (vals: string[]) => {
+                const next = [...allowList, ...vals];
                 setAllowList(next);
                 savePolicy(next, denyList);
               },
@@ -128,8 +128,8 @@ export function GroupDetail({ group }: GroupDetailProps) {
               key: "deny_list",
               label: t("asset.cmdPolicyDenyList"),
               items: denyList,
-              onAdd: (val) => {
-                const next = [...denyList, val];
+              onAdd: (vals: string[]) => {
+                const next = [...denyList, ...vals];
                 setDenyList(next);
                 savePolicy(allowList, next);
               },

@@ -109,20 +109,22 @@ func TestCheckPermission_SSH(t *testing.T) {
 			So(result.DecisionSource, ShouldEqual, SourcePolicyAllow)
 		})
 
-		Convey("no match → NeedConfirm with HintRules", func() {
+		Convey("no match → NeedConfirm with filtered HintRules", func() {
 			asset := &asset_entity.Asset{
 				ID:   1,
 				Type: asset_entity.AssetTypeSSH,
 				CmdPolicy: mustJSON(asset_entity.CommandPolicy{
-					AllowList: []string{"ls *", "cat *"},
+					AllowList: []string{"ls *", "cat *", "systemctl status *"},
 				}),
 			}
 			mockAsset.EXPECT().Find(gomock.Any(), int64(1)).Return(asset, nil).AnyTimes()
 
 			result := CheckPermission(ctx, "ssh", 1, "systemctl restart nginx")
 			So(result.Decision, ShouldEqual, NeedConfirm)
-			So(result.HintRules, ShouldContain, "ls *")
-			So(result.HintRules, ShouldContain, "cat *")
+			// 只返回与命令程序名匹配的提示（systemctl），不返回 ls/cat
+			So(result.HintRules, ShouldContain, "systemctl status *")
+			So(result.HintRules, ShouldNotContain, "ls *")
+			So(result.HintRules, ShouldNotContain, "cat *")
 		})
 
 		Convey("exec type alias maps to SSH", func() {

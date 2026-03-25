@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/opskat/opskat/internal/ai"
 	"github.com/opskat/opskat/internal/approval"
@@ -30,7 +31,7 @@ type grantInputItem struct {
 	Detail  string `json:"detail"`
 }
 
-func cmdGrant(ctx context.Context, args []string) int {
+func cmdGrant(ctx context.Context, args []string, session string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		printGrantUsage()
 		if len(args) > 0 {
@@ -41,7 +42,7 @@ func cmdGrant(ctx context.Context, args []string) int {
 
 	switch args[0] {
 	case "submit":
-		return cmdGrantSubmit(ctx, args[1:])
+		return cmdGrantSubmit(ctx, args[1:], session)
 	default:
 		fmt.Fprintf(os.Stderr, "Error: unknown grant subcommand %q\n\nRun 'opsctl grant --help' for usage.\n", args[0])
 		return 1
@@ -65,7 +66,7 @@ type resolvedTarget struct {
 	GroupName string
 }
 
-func cmdGrantSubmit(ctx context.Context, args []string) int {
+func cmdGrantSubmit(ctx context.Context, args []string, session string) int {
 	fs := flag.NewFlagSet("grant submit", flag.ContinueOnError)
 	var groupFlags stringSliceFlag
 	fs.Var(&groupFlags, "group", "Default group for items without asset/group (repeatable)")
@@ -74,34 +75,75 @@ func cmdGrantSubmit(ctx context.Context, args []string) int {
 	}
 	remaining := fs.Args()
 
-	// 解析默认目标（多个位置参数 → 资产，多个 --group → 组）
-	var defaultTargets []resolvedTarget
-	for _, arg := range remaining {
-		asset, err := resolveAsset(ctx, arg)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			return 1
-		}
-		defaultTargets = append(defaultTargets, resolvedTarget{
-			AssetID: asset.ID, AssetName: asset.Name,
-		})
-	}
-	for _, g := range groupFlags {
-		gid, gname, err := resolveGroup(ctx, g)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			return 1
-		}
-		defaultTargets = append(defaultTargets, resolvedTarget{
-			GroupID: gid, GroupName: gname,
-		})
+	// 检测 stdin 是否为终端（TTY）
+	stdinIsTerminal := false
+	if fi, err := os.Stdin.Stat(); err == nil {
+		stdinIsTerminal = fi.Mode()&os.ModeCharDevice != 0
 	}
 
-	// 从 stdin 读取 JSON
+	// 简单模式：opsctl grant submit <asset> "pattern1" "pattern2"
+	// 当 stdin 是终端且有 2+ 位置参数时，第一个为资产，其余为 exec 命令模式
+	var defaultTargets []resolvedTarget
 	var input grantInput
-	if err := json.NewDecoder(os.Stdin).Decode(&input); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid JSON input: %v\n", err)
-		return 1
+
+	if stdinIsTerminal && (len(remaining) >= 2 || (len(groupFlags) > 0 && len(remaining) >= 1)) {
+		// 简单模式：解析资产和命令模式
+		var patterns []string
+		if len(groupFlags) > 0 {
+			// --group 模式：所有位置参数都是命令模式
+			patterns = remaining
+		} else {
+			// 第一个参数是资产，其余是命令模式
+			asset, err := resolveAsset(ctx, remaining[0])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				return 1
+			}
+			defaultTargets = append(defaultTargets, resolvedTarget{
+				AssetID: asset.ID, AssetName: asset.Name,
+			})
+			patterns = remaining[1:]
+		}
+		for _, g := range groupFlags {
+			gid, gname, err := resolveGroup(ctx, g)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				return 1
+			}
+			defaultTargets = append(defaultTargets, resolvedTarget{
+				GroupID: gid, GroupName: gname,
+			})
+		}
+		for _, p := range patterns {
+			input.Items = append(input.Items, grantInputItem{Type: "exec", Command: p})
+		}
+		input.Description = fmt.Sprintf("grant: %s", strings.Join(patterns, ", "))
+	} else {
+		// JSON 模式：解析默认目标，从 stdin 读取
+		for _, arg := range remaining {
+			asset, err := resolveAsset(ctx, arg)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				return 1
+			}
+			defaultTargets = append(defaultTargets, resolvedTarget{
+				AssetID: asset.ID, AssetName: asset.Name,
+			})
+		}
+		for _, g := range groupFlags {
+			gid, gname, err := resolveGroup(ctx, g)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				return 1
+			}
+			defaultTargets = append(defaultTargets, resolvedTarget{
+				GroupID: gid, GroupName: gname,
+			})
+		}
+		if err := json.NewDecoder(os.Stdin).Decode(&input); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid JSON input: %v\n", err)
+			return 1
+		}
 	}
 
 	if len(input.Items) == 0 {
@@ -157,8 +199,11 @@ func cmdGrantSubmit(ctx context.Context, args []string) int {
 		}
 	}
 
-	// 生成 UUIDv4
-	sessionID := uuid.New().String()
+	// 优先使用已有 session，没有时生成新的
+	sessionID := session
+	if sessionID == "" {
+		sessionID = uuid.New().String()
+	}
 
 	// 通过 socket 发送 grant 请求
 	dataDir := bootstrap.AppDataDir()
@@ -230,26 +275,46 @@ func grantAuditArgs(description string, items []approval.GrantItem) map[string]a
 
 func printGrantUsage() {
 	fmt.Fprint(os.Stderr, `Usage:
-  opsctl grant submit [options] [asset...]
+  opsctl grant submit <asset> <pattern>...          (simple mode)
+  opsctl grant submit [options] [asset...] < input   (JSON mode)
 
 Subcommands:
   submit    Submit a batch grant for approval
 
-Submit reads a JSON grant from stdin and sends it to the desktop app for approval.
-If approved, the session ID is printed to stdout. Use it with --session to
-execute pre-approved operations without individual approval dialogs.
+Simple mode: pass an asset and command patterns as positional arguments.
+All patterns are treated as "exec" type. No stdin required.
+
+JSON mode: pipe a JSON grant via stdin for complex grants (multiple types,
+per-item asset/group overrides). If approved, the session ID is printed to
+stdout. Use it with --session to execute pre-approved operations.
 
 Options:
   --group <name|id>   Default group (repeatable: --group g1 --group g2).
                       Approved commands apply to all assets in the group.
 
-Positional asset arguments set default assets for items without explicit
-asset/group. Multiple assets and --group flags can be combined; items without
-explicit targets are expanded to one item per default target.
+Simple mode examples:
+  # Single asset with patterns
+  opsctl grant submit web-01 "systemctl *" "df -h" "uptime"
 
-Scope priority (per item): item asset > item group > CLI defaults (expanded)
+  # Group with patterns
+  opsctl grant submit --group production "uptime" "df -h"
 
-Input JSON format:
+JSON mode examples:
+  # Single asset
+  echo '{"description":"Deploy","items":[{"type":"exec","command":"uptime"}]}' | opsctl grant submit web-01
+
+  # Multiple assets
+  echo '{"description":"Health check","items":[{"type":"exec","command":"uptime"}]}' | opsctl grant submit web-01 web-02 web-03
+
+  # Per-item asset/group overrides (no expansion)
+  cat <<EOF | opsctl grant submit
+  {"description":"Mixed","items":[
+    {"type":"exec","asset":"web-01","command":"systemctl restart nginx"},
+    {"type":"exec","group":"database","command":"pg_isready"}
+  ]}
+  EOF
+
+JSON input format:
   {
     "description": "Grant description",
     "items": [
@@ -265,26 +330,5 @@ Item fields:
   group     Group name or ID (targets all assets in the group)
   command   Shell command pattern (supports * wildcard)
   detail    Human-readable description
-
-Examples:
-  # Single asset
-  echo '{"description":"Deploy","items":[{"type":"exec","command":"uptime"}]}' | opsctl grant submit web-01
-
-  # Multiple assets
-  echo '{"description":"Health check","items":[{"type":"exec","command":"uptime"}]}' | opsctl grant submit web-01 web-02 web-03
-
-  # Multiple groups
-  echo '{"description":"Check","items":[{"type":"exec","command":"df -h"}]}' | opsctl grant submit --group production --group staging
-
-  # Mixed assets and groups
-  echo '{"description":"Deploy","items":[{"type":"exec","command":"uptime"}]}' | opsctl grant submit web-01 --group database
-
-  # Per-item asset/group overrides (no expansion)
-  cat <<EOF | opsctl grant submit
-  {"description":"Mixed","items":[
-    {"type":"exec","asset":"web-01","command":"systemctl restart nginx"},
-    {"type":"exec","group":"database","command":"pg_isready"}
-  ]}
-  EOF
 `)
 }

@@ -1,6 +1,7 @@
 package credential_resolver
 
 import (
+	"context"
 	"testing"
 
 	"github.com/opskat/opskat/internal/model/entity/asset_entity"
@@ -23,7 +24,7 @@ func TestResolveDatabasePassword(t *testing.T) {
 
 		convey.Convey("空密码返回空字符串", func() {
 			cfg := &asset_entity.DatabaseConfig{Password: ""}
-			password, err := r.ResolveDatabasePassword(cfg)
+			password, err := r.ResolveDatabasePassword(context.Background(), cfg)
 			assert.NoError(t, err)
 			assert.Equal(t, "", password)
 		})
@@ -33,14 +34,14 @@ func TestResolveDatabasePassword(t *testing.T) {
 			assert.NoError(t, err)
 
 			cfg := &asset_entity.DatabaseConfig{Password: encrypted}
-			password, err := r.ResolveDatabasePassword(cfg)
+			password, err := r.ResolveDatabasePassword(context.Background(), cfg)
 			assert.NoError(t, err)
 			assert.Equal(t, "db-secret-123", password)
 		})
 
 		convey.Convey("无效密文返回错误", func() {
 			cfg := &asset_entity.DatabaseConfig{Password: "plain-text-not-encrypted"} //nolint:gosec
-			_, err := r.ResolveDatabasePassword(cfg)
+			_, err := r.ResolveDatabasePassword(context.Background(), cfg)
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), "解密数据库密码失败")
 		})
@@ -54,7 +55,7 @@ func TestResolveRedisPassword(t *testing.T) {
 
 		convey.Convey("空密码返回空字符串", func() {
 			cfg := &asset_entity.RedisConfig{Password: ""}
-			password, err := r.ResolveRedisPassword(cfg)
+			password, err := r.ResolveRedisPassword(context.Background(), cfg)
 			assert.NoError(t, err)
 			assert.Equal(t, "", password)
 		})
@@ -64,14 +65,14 @@ func TestResolveRedisPassword(t *testing.T) {
 			assert.NoError(t, err)
 
 			cfg := &asset_entity.RedisConfig{Password: encrypted}
-			password, err := r.ResolveRedisPassword(cfg)
+			password, err := r.ResolveRedisPassword(context.Background(), cfg)
 			assert.NoError(t, err)
 			assert.Equal(t, "redis-secret-456", password)
 		})
 
 		convey.Convey("无效密文返回错误", func() {
 			cfg := &asset_entity.RedisConfig{Password: "plain-text-not-encrypted"} //nolint:gosec
-			_, err := r.ResolveRedisPassword(cfg)
+			_, err := r.ResolveRedisPassword(context.Background(), cfg)
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), "解密 Redis 密码失败")
 		})
