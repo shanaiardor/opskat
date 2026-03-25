@@ -7,10 +7,6 @@ description: "opskat CLI tool (opsctl) for server asset management and remote op
 
 opskat's standalone CLI for asset management and remote operations without the GUI.
 
-## Data Directory
-
-/Users/codfrm/Library/Application Support/opskat
-
 ## Global Flags
 
 - `--data-dir <path>` — Override app data directory (default: platform-specific)
