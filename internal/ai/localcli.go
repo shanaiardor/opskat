@@ -27,12 +27,12 @@ type PermissionResponse struct {
 
 // LocalCLIProvider 本地 CLI provider（claude/codex）
 type LocalCLIProvider struct {
-	name      string
-	cliPath   string // CLI 可执行文件路径
-	cliType   string // "claude" 或 "codex"
+	name    string
+	cliPath string // CLI 可执行文件路径
+	cliType string // "claude" 或 "codex"
 	// claudeSessions 每个会话的 Claude session ID 映射 (conversationID -> sessionID)
 	claudeSessions map[int64]string
-	mu        sync.Mutex
+	mu             sync.Mutex
 
 	// CLI 工作目录
 	workDir string

@@ -31,11 +31,9 @@ type codexRPCError struct {
 
 // CodexAppServer 管理与 codex app-server 的通信
 type CodexAppServer struct {
-	cliPath  string
-	proc     *CLIProcess
-	threadID string
-	nextID   atomic.Int64
-	mu       sync.Mutex
+	cliPath string
+	proc    *CLIProcess
+	nextID  atomic.Int64
 
 	// 响应等待
 	pending   map[int64]chan codexJSONRPC
