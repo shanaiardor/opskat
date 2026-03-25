@@ -134,7 +134,7 @@ func cmdSession(args []string) int {
 	case "status":
 		return cmdSessionStatus()
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unknown session subcommand %q\n\nRun 'opsctl session --help' for usage.\n", args[0]) //nolint:gosec // args[0] is from CLI args
+		fmt.Fprintf(os.Stderr, "Error: unknown session subcommand %q\n\nRun 'opsctl session --help' for usage.\n", args[0])
 		return 1
 	}
 }

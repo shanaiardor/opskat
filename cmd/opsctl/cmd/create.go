@@ -112,7 +112,7 @@ func cmdCreate(ctx context.Context, handlers map[string]ai.ToolHandlerFunc, args
 		return callHandler(ctx, handlers, "add_asset", params)
 
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unknown resource %q. Supported: asset\n", resource) //nolint:gosec // resource is from CLI args
+		fmt.Fprintf(os.Stderr, "Error: unknown resource %q. Supported: asset\n", resource)
 		return 1
 	}
 }
@@ -184,7 +184,7 @@ func cmdUpdate(ctx context.Context, handlers map[string]ai.ToolHandlerFunc, args
 		return callHandler(ctx, handlers, "update_asset", params)
 
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unknown resource %q. Supported: asset\n", resource) //nolint:gosec // resource is from CLI args
+		fmt.Fprintf(os.Stderr, "Error: unknown resource %q. Supported: asset\n", resource)
 		return 1
 	}
 }

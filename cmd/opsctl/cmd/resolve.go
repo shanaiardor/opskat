@@ -80,7 +80,7 @@ func resolveAsset(ctx context.Context, identifier string) (*asset_entity.Asset, 
 		logger.Default().Warn("build group path map", zap.Error(err))
 	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "ambiguous name %q, matches:\n", identifier) //nolint:gosec // identifier is from CLI args
+	fmt.Fprintf(&sb, "ambiguous name %q, matches:\n", identifier)
 	for _, a := range candidates {
 		group := groupMap[a.GroupID]
 		if group == "" {

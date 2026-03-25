@@ -40,7 +40,7 @@ func cmdList(ctx context.Context, handlers map[string]ai.ToolHandlerFunc, args [
 		return callHandler(ctx, handlers, "list_groups", nil)
 
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unknown resource %q. Supported: assets, groups\n", resource) //nolint:gosec // resource is from CLI args
+		fmt.Fprintf(os.Stderr, "Error: unknown resource %q. Supported: assets, groups\n", resource)
 		return 1
 	}
 }
@@ -70,7 +70,7 @@ func cmdGet(ctx context.Context, handlers map[string]ai.ToolHandlerFunc, args []
 			"id": float64(id),
 		})
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unknown resource %q. Supported: asset\n", resource) //nolint:gosec // resource is from CLI args
+		fmt.Fprintf(os.Stderr, "Error: unknown resource %q. Supported: asset\n", resource)
 		return 1
 	}
 }

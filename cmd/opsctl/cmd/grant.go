@@ -43,7 +43,7 @@ func cmdGrant(ctx context.Context, args []string) int {
 	case "submit":
 		return cmdGrantSubmit(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unknown grant subcommand %q\n\nRun 'opsctl grant --help' for usage.\n", args[0]) //nolint:gosec // args[0] is from CLI args
+		fmt.Fprintf(os.Stderr, "Error: unknown grant subcommand %q\n\nRun 'opsctl grant --help' for usage.\n", args[0])
 		return 1
 	}
 }

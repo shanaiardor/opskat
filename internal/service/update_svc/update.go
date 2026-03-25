@@ -80,7 +80,7 @@ func fetchReleaseFromURL(url string) (*ReleaseInfo, error) {
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := client.Do(req) //nolint:gosec // request to GitHub API URL
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request GitHub API failed: %w", err)
 	}
@@ -111,7 +111,7 @@ func fetchLatestBetaRelease() (*ReleaseInfo, error) {
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := client.Do(req) //nolint:gosec // request to GitHub API URL
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request GitHub API failed: %w", err)
 	}
@@ -474,11 +474,11 @@ func extractTarGz(archivePath, destDir string) error {
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil { //nolint:gosec // extracting trusted archive
+			if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
 				return err
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil { //nolint:gosec // extracting trusted archive
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return err
 			}
 			outFile, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode)) //nolint:gosec // extracting trusted archive
@@ -518,13 +518,13 @@ func extractZip(archivePath, destDir string) error {
 		}
 
 		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, 0755); err != nil { //nolint:gosec // extracting trusted archive
+			if err := os.MkdirAll(target, 0755); err != nil {
 				logger.Default().Warn("create directory", zap.String("path", target), zap.Error(err))
 			}
 			continue
 		}
 
-		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil { //nolint:gosec // extracting trusted archive
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 			return err
 		}
 

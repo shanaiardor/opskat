@@ -57,7 +57,7 @@ func StartDeviceFlow() (*DeviceFlowInfo, error) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // URL constructed from trusted config
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("请求 GitHub Device Flow 失败: %w", err)
 	}
@@ -132,7 +132,7 @@ func pollOnce(deviceCode string) (token string, done bool, err error) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // URL constructed from trusted config
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", false, fmt.Errorf("请求 GitHub 失败: %w", err)
 	}
@@ -184,7 +184,7 @@ func GetGitHubUser(token string) (*GitHubUser, error) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // URL constructed from trusted config
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("请求 GitHub 失败: %w", err)
 	}
@@ -243,7 +243,7 @@ func CreateOrUpdateGist(token, gistID string, content []byte) (*GistInfo, error)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // URL constructed from trusted config
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("请求 GitHub 失败: %w", err)
 	}
@@ -292,7 +292,7 @@ func GetGistContent(token, gistID string) ([]byte, error) {
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // URL constructed from trusted config
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("请求 GitHub 失败: %w", err)
 	}
@@ -333,7 +333,7 @@ func ListBackupGists(token string) ([]*GistInfo, error) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // URL constructed from trusted config
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("请求 GitHub 失败: %w", err)
 	}

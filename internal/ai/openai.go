@@ -83,7 +83,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, messages []Message, tools []T
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+p.apiKey)
 
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("请求失败: %w", err)
 	}

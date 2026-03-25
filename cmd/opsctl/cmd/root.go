@@ -121,7 +121,7 @@ func Execute() int {
 	case "session":
 		return cmdSession(args)
 	default:
-		fmt.Fprintf(os.Stderr, "Error: unknown command %q\n\nRun 'opsctl help' for usage.\n", verb) //nolint:gosec // verb is from CLI args
+		fmt.Fprintf(os.Stderr, "Error: unknown command %q\n\nRun 'opsctl help' for usage.\n", verb)
 		return 1
 	}
 }
