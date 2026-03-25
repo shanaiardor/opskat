@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Check, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { pinyinMatch } from "@/lib/pinyin";
 
 export interface TreeNode {
   id: number;
@@ -28,13 +29,12 @@ interface TreeSelectProps {
   className?: string;
 }
 
-/** Filter tree nodes by search query, preserving ancestor paths */
+/** Filter tree nodes by search query (with pinyin support), preserving ancestor paths */
 function filterTree(nodes: TreeNode[], query: string): TreeNode[] {
   if (!query) return nodes;
-  const lower = query.toLowerCase();
 
   function matches(node: TreeNode): boolean {
-    if (node.label.toLowerCase().includes(lower)) return true;
+    if (pinyinMatch(node.label, query)) return true;
     if (node.children?.some(matches)) return true;
     return false;
   }

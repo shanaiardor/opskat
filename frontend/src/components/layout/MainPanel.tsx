@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef } from "react";
+import { createContext, useCallback, useContext, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { X, Settings, KeyRound, MessageSquare, ScrollText, ArrowRightLeft, Server, Folder } from "lucide-react";
 import logoLight from "@/assets/images/logo.png";
@@ -179,6 +179,26 @@ export function MainPanel({ onEditAsset, onDeleteAsset, onConnectAsset }: MainPa
   const { fileManagerOpenTabs, fileManagerWidth, setFileManagerWidth } = useSFTPStore();
 
   const dragKeyRef = useRef<string | null>(null);
+  const tabBarRef = useRef<HTMLDivElement>(null);
+  const wheelListenerRef = useRef<((e: WheelEvent) => void) | null>(null);
+
+  const tabBarCallbackRef = useCallback((el: HTMLDivElement | null) => {
+    if (tabBarRef.current && wheelListenerRef.current) {
+      tabBarRef.current.removeEventListener("wheel", wheelListenerRef.current);
+      wheelListenerRef.current = null;
+    }
+    tabBarRef.current = el;
+    if (el) {
+      const onWheel = (e: WheelEvent) => {
+        if (e.deltaY !== 0) {
+          e.preventDefault();
+          el.scrollLeft += e.deltaY;
+        }
+      };
+      wheelListenerRef.current = onWheel;
+      el.addEventListener("wheel", onWheel, { passive: false });
+    }
+  }, []);
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
   const hasTabs = tabs.length > 0;
@@ -377,6 +397,7 @@ export function MainPanel({ onEditAsset, onDeleteAsset, onConnectAsset }: MainPa
       {hasTabs && (
         <TabBarContext.Provider value={tabBarCtx}>
           <div
+            ref={tabBarCallbackRef}
             className={`flex items-center border-b overflow-x-auto bg-background ${isFullscreen ? "pt-2" : "pt-10"}`}
             style={{ "--wails-draggable": "drag" } as React.CSSProperties}
           >

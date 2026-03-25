@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
@@ -103,8 +102,6 @@ func (p *ApprovedPattern) Match(assetID int64, command string) bool {
 type CommandPolicyChecker struct {
 	confirmFunc      CommandConfirmFunc
 	grantRequestFunc GrantRequestFunc
-	grantAllowed     []ApprovedPattern // Grant 预批准白名单（资产+命令模式）
-	mu               sync.Mutex
 }
 
 // NewCommandPolicyChecker 创建权限检查器
@@ -142,16 +139,6 @@ func (c *CommandPolicyChecker) SubmitGrant(ctx context.Context, assetID int64, p
 	}
 
 	return CheckResult{Decision: Allow, Message: fmt.Sprintf("Grant 已批准，共 %d 条模式", len(finalPatterns)), DecisionSource: SourceGrantAllow, MatchedPattern: strings.Join(finalPatterns, "; ")}
-}
-
-// AddApprovedPattern 添加已批准的模式（外部调用，如 opsctl 审批后）
-func (c *CommandPolicyChecker) AddApprovedPattern(assetID int64, pattern string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.grantAllowed = append(c.grantAllowed, ApprovedPattern{
-		AssetID: assetID,
-		Pattern: pattern,
-	})
 }
 
 // matchGrantPatterns 从 DB 中查找已批准 grant 的 items，用通配匹配命令
@@ -215,321 +202,73 @@ func grantItemMatchesTarget(item *grant_entity.GrantItem, assetID int64, groupID
 	return true
 }
 
-// matchSessionPatterns 检查所有子命令是否都能被会话级模式匹配（调用方需持有 mu 锁）
-// 返回是否匹配，以及首个匹配的模式（用于审计）
-func (c *CommandPolicyChecker) matchSessionPatterns(assetID int64, subCmds []string) (bool, string) {
-	if len(c.grantAllowed) == 0 {
-		return false, ""
-	}
-	var firstPattern string
-	for _, cmd := range subCmds {
-		matched := false
-		for i := range c.grantAllowed {
-			if c.grantAllowed[i].Match(assetID, cmd) {
-				matched = true
-				if firstPattern == "" {
-					firstPattern = c.grantAllowed[i].Pattern
-				}
-				break
-			}
-		}
-		if !matched {
-			return false, ""
-		}
-	}
-	return true, firstPattern
-}
-
-// Reset 重置会话级白名单
+// Reset 重置会话级白名单（已迁移到 DB Grant，无需内存清理）
 func (c *CommandPolicyChecker) Reset() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.grantAllowed = nil
 }
 
 // Check 检查命令是否允许执行
 func (c *CommandPolicyChecker) Check(ctx context.Context, assetID int64, command string) CheckResult {
-	// 1. 提取所有子命令
-	subCmds, err := ExtractSubCommands(command)
-	if err != nil || len(subCmds) == 0 {
-		// 解析失败，整条视为一个命令
-		subCmds = []string{command}
+	result := CheckPermission(ctx, asset_entity.AssetTypeSSH, assetID, command)
+	if result.Decision != NeedConfirm {
+		return result
 	}
-
-	// 2. 获取资产 + 组链
-	asset, err := asset_svc.Asset().Get(ctx, assetID)
-	if err != nil {
-		logger.Default().Warn("get asset for command check", zap.Int64("assetID", assetID), zap.Error(err))
-	}
-	var groups []*group_entity.Group
-	if asset != nil && asset.GroupID > 0 {
-		groups = resolveGroupChain(ctx, asset.GroupID)
-	}
-
-	// 收集所有层级的策略（含权限组解析）
-	allPolicies := collectPolicies(ctx, asset, groups)
-	allDenyRules := collectDenyRules(allPolicies)
-	allAllowRules := collectAllowRules(allPolicies)
-
-	// 3. 检查 deny list（所有层级合并，任一匹配即拒绝）
-	for _, cmd := range subCmds {
-		for _, rule := range allDenyRules {
-			if MatchCommandRule(rule, cmd) {
-				assetName := ""
-				if asset != nil {
-					assetName = asset.Name
-				}
-				hints := findHintRules(cmd, allAllowRules)
-				msg := formatDenyMessage(assetName, command, "命令被策略禁止执行", hints)
-				return CheckResult{Decision: Deny, Message: msg, HintRules: hints, DecisionSource: SourcePolicyDeny, MatchedPattern: rule}
-			}
-		}
-	}
-
-	// 4. 检查 allow list（所有子命令都匹配才放行）
-	if len(allAllowRules) > 0 {
-		if ok, matched := allSubCommandsAllowed(subCmds, allAllowRules); ok {
-			return CheckResult{Decision: Allow, DecisionSource: SourcePolicyAllow, MatchedPattern: matched}
-		}
-	}
-
-	// 5. 检查会话级白名单（按 assetID + pattern 匹配，exec 弹窗的「始终允许」）
-	c.mu.Lock()
-	sessionOK, matchedPattern := c.matchSessionPatterns(assetID, subCmds)
-	c.mu.Unlock()
-	if sessionOK {
-		return CheckResult{Decision: Allow, DecisionSource: SourceGrantAllow, MatchedPattern: matchedPattern}
-	}
-
-	// 6. 检查 Grant 预批准（DB 中已批准的 grant items 做通配匹配）
-	if grantPattern := matchGrantPatterns(ctx, assetID, groups, subCmds); grantPattern != "" {
-		return CheckResult{Decision: Allow, DecisionSource: SourceGrantAllow, MatchedPattern: grantPattern}
-	}
-
-	// 7. 请求用户确认
-	if c.confirmFunc == nil {
-		hints := findHintRules(subCmds[0], allAllowRules)
-		msg := formatDenyMessage("", command, "命令未授权且无确认机制", hints)
-		return CheckResult{Decision: Deny, Message: msg, HintRules: hints, DecisionSource: SourcePolicyDeny}
-	}
-
-	assetName := ""
-	if asset != nil {
-		assetName = asset.Name
-	}
-	allowed, alwaysAllow := c.confirmFunc(assetName, command)
-	if !allowed {
-		hints := findHintRules(subCmds[0], allAllowRules)
-		msg := formatDenyMessage(assetName, command, "用户拒绝执行", hints)
-		return CheckResult{Decision: Deny, Message: msg, HintRules: hints, DecisionSource: SourceUserDeny}
-	}
-
-	// "始终允许" → 每个子命令加入会话白名单（绑定资产ID）
-	if alwaysAllow {
-		c.mu.Lock()
-		for _, cmd := range subCmds {
-			c.grantAllowed = append(c.grantAllowed, ApprovedPattern{
-				AssetID: assetID,
-				Pattern: cmd,
-			})
-		}
-		c.mu.Unlock()
-		// 写审计日志记录会话模式变更
-		writeGrantSubmitAudit(ctx, assetID, assetName, subCmds)
-	}
-
-	return CheckResult{Decision: Allow, DecisionSource: SourceUserAllow}
+	return c.handleConfirm(ctx, assetID, command)
 }
 
-// CheckPolicyOnly 只检查 allow/deny 列表，不触发确认回调。
-// 返回 Allow（允许列表匹配）、Deny（拒绝列表匹配）或 NeedConfirm（未匹配任何列表）。
+// CheckPolicyOnly 只检查 allow/deny 列表 + DB Grant 匹配，不触发确认回调。
+// 向后兼容包装器，内部委托 CheckPermission。
 func CheckPolicyOnly(ctx context.Context, assetID int64, command string) CheckResult {
-	subCmds, err := ExtractSubCommands(command)
-	if err != nil || len(subCmds) == 0 {
-		subCmds = []string{command}
-	}
-
-	asset, err := asset_svc.Asset().Get(ctx, assetID)
-	if err != nil {
-		logger.Default().Warn("get asset for policy check", zap.Int64("assetID", assetID), zap.Error(err))
-	}
-	var groups []*group_entity.Group
-	if asset != nil && asset.GroupID > 0 {
-		groups = resolveGroupChain(ctx, asset.GroupID)
-	}
-
-	allPolicies := collectPolicies(ctx, asset, groups)
-	allDenyRules := collectDenyRules(allPolicies)
-	allAllowRules := collectAllowRules(allPolicies)
-
-	// Check deny list
-	for _, cmd := range subCmds {
-		for _, rule := range allDenyRules {
-			if MatchCommandRule(rule, cmd) {
-				assetName := ""
-				if asset != nil {
-					assetName = asset.Name
-				}
-				hints := findHintRules(cmd, allAllowRules)
-				msg := formatDenyMessage(assetName, command, "命令被策略禁止执行", hints)
-				return CheckResult{Decision: Deny, Message: msg, HintRules: hints, DecisionSource: SourcePolicyDeny, MatchedPattern: rule}
-			}
-		}
-	}
-
-	// Check allow list
-	if len(allAllowRules) > 0 {
-		if ok, matched := allSubCommandsAllowed(subCmds, allAllowRules); ok {
-			return CheckResult{Decision: Allow, DecisionSource: SourcePolicyAllow, MatchedPattern: matched}
-		}
-	}
-
-	return CheckResult{Decision: NeedConfirm, HintRules: allAllowRules}
+	return CheckPermission(ctx, asset_entity.AssetTypeSSH, assetID, command)
 }
 
-// CheckSQLPolicyForOpsctl 检查 SQL 策略（无确认回调），用于 opsctl 前置策略检查。
-// NeedConfirm 时 HintRules 包含允许的 SQL 类型。
+// CheckSQLPolicyForOpsctl 检查 SQL 策略，向后兼容包装器，内部委托 CheckPermission。
 func CheckSQLPolicyForOpsctl(ctx context.Context, assetID int64, sqlText string) CheckResult {
-	// 1. 组通用策略（CmdPolicy）
-	groupResult := CheckGroupGenericPolicy(ctx, assetID, sqlText, MatchCommandRule)
-	if groupResult.Decision == Deny {
-		return groupResult
-	}
-
-	// 2. SQL 分类 + 查询策略
-	stmts, err := ClassifyStatements(sqlText)
-	if err != nil {
-		return CheckResult{Decision: Deny, Message: fmt.Sprintf("SQL 解析失败，拒绝执行: %v", err)}
-	}
-
-	asset, _ := resolveAssetPolicyChain(ctx, assetID)
-	mergedPolicy := collectQueryPolicies(ctx, asset)
-	result := CheckQueryPolicy(mergedPolicy, stmts)
-
-	// 组通用 allow 优先于类型专用的 NeedConfirm
-	if result.Decision == NeedConfirm && groupResult.Decision == Allow {
-		return groupResult
-	}
-
-	// NeedConfirm 时收集允许的 SQL 类型作为提示
-	if result.Decision == NeedConfirm {
-		merged := mergeQueryPolicy(mergedPolicy, asset_entity.DefaultQueryPolicy())
-		if len(merged.AllowTypes) > 0 {
-			result.HintRules = merged.AllowTypes
-		}
-	}
-
-	return result
+	return CheckPermission(ctx, asset_entity.AssetTypeDatabase, assetID, sqlText)
 }
 
-// CheckRedisPolicyForOpsctl 检查 Redis 策略（无确认回调），用于 opsctl 前置策略检查。
-// NeedConfirm 时 HintRules 包含允许的 Redis 命令。
+// CheckRedisPolicyForOpsctl 检查 Redis 策略，向后兼容包装器，内部委托 CheckPermission。
 func CheckRedisPolicyForOpsctl(ctx context.Context, assetID int64, command string) CheckResult {
-	// 1. 组通用策略（CmdPolicy）
-	groupResult := CheckGroupGenericPolicy(ctx, assetID, command, MatchRedisRule)
-	if groupResult.Decision == Deny {
-		return groupResult
-	}
-
-	// 2. Redis 策略
-	asset, _ := resolveAssetPolicyChain(ctx, assetID)
-	mergedPolicy := collectRedisPolicies(ctx, asset)
-	result := CheckRedisPolicy(mergedPolicy, command)
-
-	// 组通用 allow 优先于类型专用的 NeedConfirm
-	if result.Decision == NeedConfirm && groupResult.Decision == Allow {
-		return groupResult
-	}
-
-	// NeedConfirm 时收集允许的 Redis 命令作为提示
-	if result.Decision == NeedConfirm {
-		merged := mergeRedisPolicy(mergedPolicy, asset_entity.DefaultRedisPolicy())
-		if len(merged.AllowList) > 0 {
-			result.HintRules = merged.AllowList
-		}
-	}
-
-	return result
+	return CheckPermission(ctx, asset_entity.AssetTypeRedis, assetID, command)
 }
 
 // CheckForAsset 按资产类型分发权限检查
 func (c *CommandPolicyChecker) CheckForAsset(ctx context.Context, assetID int64, assetType, command string) CheckResult {
-	switch assetType {
-	case asset_entity.AssetTypeSSH:
-		return c.Check(ctx, assetID, command)
-
-	case asset_entity.AssetTypeDatabase:
-		// 先检查组通用策略（CmdPolicy，用 MatchCommandRule）
-		groupResult := CheckGroupGenericPolicy(ctx, assetID, command, MatchCommandRule)
-		if groupResult.Decision == Deny {
-			return groupResult
-		}
-		stmts, err := ClassifyStatements(command)
-		if err != nil {
-			return CheckResult{Decision: Deny, Message: fmt.Sprintf("SQL 解析失败，拒绝执行: %v", err)}
-		}
-		asset, _ := resolveAssetPolicyChain(ctx, assetID)
-		mergedPolicy := collectQueryPolicies(ctx, asset)
-		result := CheckQueryPolicy(mergedPolicy, stmts)
-		// 组通用 allow 优先于类型专用的 NeedConfirm
-		if result.Decision == NeedConfirm && groupResult.Decision == Allow {
-			return groupResult
-		}
-		if result.Decision == NeedConfirm {
-			return c.handleConfirm(ctx, assetID, asset, command)
-		}
-		return result
-
-	case asset_entity.AssetTypeRedis:
-		// 先检查组通用策略（CmdPolicy，用 MatchRedisRule）
-		groupResult := CheckGroupGenericPolicy(ctx, assetID, command, MatchRedisRule)
-		if groupResult.Decision == Deny {
-			return groupResult
-		}
-		asset, _ := resolveAssetPolicyChain(ctx, assetID)
-		mergedPolicy := collectRedisPolicies(ctx, asset)
-		result := CheckRedisPolicy(mergedPolicy, command)
-		// 组通用 allow 优先于类型专用的 NeedConfirm
-		if result.Decision == NeedConfirm && groupResult.Decision == Allow {
-			return groupResult
-		}
-		if result.Decision == NeedConfirm {
-			return c.handleConfirm(ctx, assetID, asset, command)
-		}
+	result := CheckPermission(ctx, assetType, assetID, command)
+	if result.Decision != NeedConfirm {
 		return result
 	}
-	return CheckResult{Decision: NeedConfirm}
+	return c.handleConfirm(ctx, assetID, command)
 }
 
 // handleConfirm 处理需要用户确认的情况
-func (c *CommandPolicyChecker) handleConfirm(ctx context.Context, assetID int64, asset *asset_entity.Asset, command string) CheckResult {
-	// 检查会话级白名单
-	c.mu.Lock()
-	sessionOK, matchedPattern := c.matchSessionPatterns(assetID, []string{command})
-	c.mu.Unlock()
-	if sessionOK {
-		return CheckResult{Decision: Allow, DecisionSource: SourceGrantAllow, MatchedPattern: matchedPattern}
-	}
-
+func (c *CommandPolicyChecker) handleConfirm(ctx context.Context, assetID int64, command string) CheckResult {
 	if c.confirmFunc == nil {
 		return CheckResult{Decision: Deny, Message: "命令未授权且无确认机制", DecisionSource: SourcePolicyDeny}
 	}
 
+	asset, err := asset_svc.Asset().Get(ctx, assetID)
+	if err != nil {
+		logger.Default().Warn("get asset for confirm", zap.Int64("assetID", assetID), zap.Error(err))
+	}
 	assetName := ""
 	if asset != nil {
 		assetName = asset.Name
 	}
+
 	allowed, alwaysAllow := c.confirmFunc(assetName, command)
 	if !allowed {
 		return CheckResult{Decision: Deny, Message: fmt.Sprintf("用户拒绝执行: %s", command), DecisionSource: SourceUserDeny}
 	}
 	if alwaysAllow {
-		c.mu.Lock()
-		c.grantAllowed = append(c.grantAllowed, ApprovedPattern{
-			AssetID: assetID,
-			Pattern: command,
-		})
-		c.mu.Unlock()
+		sessionID := GetSessionID(ctx)
+		subCmds, _ := ExtractSubCommands(command)
+		if len(subCmds) == 0 {
+			subCmds = []string{command}
+		}
+		for _, cmd := range subCmds {
+			SaveGrantPattern(ctx, sessionID, assetID, assetName, cmd)
+		}
+		writeGrantSubmitAudit(ctx, assetID, assetName, subCmds)
 	}
 	return CheckResult{Decision: Allow, DecisionSource: SourceUserAllow}
 }
@@ -837,7 +576,11 @@ func findHintRules(command string, allowRules []string) []string {
 
 func formatDenyMessage(assetName, command, reason string, hints []string) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "命令执行被拒绝（%s）。\n命令: %s", reason, command)
+	if assetName != "" {
+		fmt.Fprintf(&sb, "命令执行被拒绝（%s）。\n资产: %s\n命令: %s", reason, assetName, command)
+	} else {
+		fmt.Fprintf(&sb, "命令执行被拒绝（%s）。\n命令: %s", reason, command)
+	}
 	if len(hints) > 0 {
 		sb.WriteString("\n\n该资产允许的相关命令格式：\n")
 		for _, h := range hints {

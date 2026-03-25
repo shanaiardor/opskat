@@ -8,35 +8,8 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 )
 
-func TestMatchGrantItem(t *testing.T) {
-	Convey("matchGrantItem", t, func() {
-		Convey("exec uses MatchCommandRule", func() {
-			So(matchGrantItem("exec", "ls *", "ls -la"), ShouldBeTrue)
-			So(matchGrantItem("exec", "ls *", "cat /etc/passwd"), ShouldBeFalse)
-			So(matchGrantItem("exec", "systemctl status *", "systemctl status nginx"), ShouldBeTrue)
-			So(matchGrantItem("exec", "systemctl status *", "systemctl restart nginx"), ShouldBeFalse)
-		})
-
-		Convey("sql uses MatchCommandRule", func() {
-			So(matchGrantItem("sql", "SELECT *", "SELECT * FROM users"), ShouldBeTrue)
-			So(matchGrantItem("sql", "SELECT *", "DROP TABLE users"), ShouldBeFalse)
-		})
-
-		Convey("redis uses MatchRedisRule", func() {
-			So(matchGrantItem("redis", "GET *", "GET user:1"), ShouldBeTrue)
-			So(matchGrantItem("redis", "GET *", "SET user:1 val"), ShouldBeFalse)
-			So(matchGrantItem("redis", "HGETALL *", "HGETALL user:1"), ShouldBeTrue)
-
-			// MatchRedisRule handles multi-word commands
-			So(matchGrantItem("redis", "CONFIG GET *", "CONFIG GET maxmemory"), ShouldBeTrue)
-			So(matchGrantItem("redis", "CONFIG GET *", "CONFIG SET maxmemory 100"), ShouldBeFalse)
-		})
-
-		Convey("unknown type falls back to MatchCommandRule", func() {
-			So(matchGrantItem("cp", "upload *", "upload /tmp/file"), ShouldBeTrue)
-		})
-	})
-}
+// CheckPermission delegation is tested in internal/ai/permission_test.go.
+// matchGrantItem was removed — grant matching is now unified inside CheckPermission.
 
 func TestFormatOfflineDenyMessage(t *testing.T) {
 	Convey("formatOfflineDenyMessage", t, func() {

@@ -146,6 +146,7 @@
     background: oklch(0.8 0 0 / 30%);
   }
 
+
   /* Custom selection */
   ::selection {
     background: oklch(0.67 0.16 260 / 30%);

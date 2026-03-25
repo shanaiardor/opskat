@@ -94,7 +94,6 @@ type App struct {
 	pendingConfirms       sync.Map                   // map[string]chan ConfirmResponse（run_command 确认用）
 	pendingApprovals      sync.Map                   // map[string]chan bool（opsctl 审批用）
 	approvalServer        *approval.Server           // opsctl 审批 Unix socket 服务
-	approvedGrants        sync.Map                   // map[string]*grantRules（已批准的 grant 规则）
 	sshPool               *sshpool.Pool              // opsctl SSH 连接池
 	sshProxyServer        *sshpool.Server            // SSH 连接池 Unix socket 服务
 	shutdownCh            chan struct{}              // 关闭信号，cleanup 时 close 以解除所有阻塞等待
@@ -105,34 +104,6 @@ type App struct {
 	currentConversationID int64                      // 当前活跃会话ID
 	aiProviderType        string                     // 当前 provider 类型
 	aiModel               string                     // 当前模型
-}
-
-// grantRules 已批准的命令模式规则
-type grantRules struct {
-	mu    sync.Mutex
-	rules []ai.ApprovedPattern
-}
-
-// Add 添加规则
-func (s *grantRules) Add(assetID int64, pattern string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.rules = append(s.rules, ai.ApprovedPattern{
-		AssetID: assetID,
-		Pattern: pattern,
-	})
-}
-
-// Match 检查命令是否匹配任一规则，返回是否匹配及命中的模式
-func (s *grantRules) Match(assetID int64, command string) (bool, string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i := range s.rules {
-		if s.rules[i].Match(assetID, command) {
-			return true, s.rules[i].Pattern
-		}
-	}
-	return false, ""
 }
 
 // NewApp 创建App实例
@@ -291,10 +262,6 @@ func (a *App) SetAIProvider(providerType, apiBase, apiKey, model string) error {
 				return ai.PermissionResponse{Behavior: "deny"}
 			}
 		}
-		// 注入 session 重置回调：清理已批准的 grant 规则
-		cliProvider.OnSessionReset = func(sessionID string) {
-			a.approvedGrants.Delete(sessionID)
-		}
 		// 设置工作目录
 		if a.currentConversationID > 0 {
 			conv, err := conversation_svc.Conversation().Get(a.langCtx(), a.currentConversationID)
@@ -341,16 +308,6 @@ func (a *App) startApprovalServer(authToken string) {
 		// 授权审批
 		if req.Type == "grant" {
 			return a.handleGrantApproval(req)
-		}
-
-		// grant 规则匹配：按 assetID + command pattern 自动放行
-		if req.SessionID != "" && req.Command != "" {
-			if v, ok := a.approvedGrants.Load(req.SessionID); ok {
-				rules := v.(*grantRules)
-				if matched, pattern := rules.Match(req.AssetID, req.Command); matched {
-					return approval.ApprovalResponse{Approved: true, Reason: "grant_match", MatchedPattern: pattern}
-				}
-			}
 		}
 
 		// 单条审批
@@ -469,7 +426,10 @@ func (a *App) handleGrantApproval(req approval.ApprovalRequest) approval.Approva
 		Createtime:  time.Now().Unix(),
 	}
 	if err := grant_repo.Grant().CreateSession(ctx, session); err != nil {
-		return approval.ApprovalResponse{Approved: false, Reason: "failed to create grant session"}
+		// Session may already exist (e.g., multiple request_permission calls in same conversation)
+		if _, getErr := grant_repo.Grant().GetSession(ctx, sessionID); getErr != nil {
+			return approval.ApprovalResponse{Approved: false, Reason: "failed to create grant session"}
+		}
 	}
 
 	var items []*grant_entity.GrantItem
@@ -620,11 +580,7 @@ func (a *App) RespondGrantApprovalWithEdits(sessionID string, approved bool, edi
 // RespondOpsctlApprovalGrant 前端响应审批并记住 grant 命令模式
 func (a *App) RespondOpsctlApprovalGrant(confirmID string, approved bool, sessionID string, assetID int64, assetName string, commandPattern string) {
 	if approved && sessionID != "" && commandPattern != "" {
-		v, _ := a.approvedGrants.LoadOrStore(sessionID, &grantRules{})
-		rules := v.(*grantRules)
-		rules.Add(assetID, commandPattern)
-		// 记录会话模式变更审计日志
-		ai.WriteGrantSubmitAudit(context.Background(), assetID, assetName, []string{commandPattern}, sessionID)
+		ai.SaveGrantPattern(a.langCtx(), sessionID, assetID, assetName, commandPattern)
 	}
 	a.RespondOpsctlApproval(confirmID, approved)
 }
@@ -1890,6 +1846,7 @@ func (a *App) SendAIMessage(convID int64, messages []ai.Message) error {
 		// 注入审计上下文
 		chatCtx := ai.WithAuditSource(a.ctx, "ai")
 		chatCtx = ai.WithConversationID(chatCtx, convID)
+		chatCtx = ai.WithSessionID(chatCtx, fmt.Sprintf("conv_%d", convID))
 		// 注入 SSH 连接池，供 Redis/Database SSH 隧道使用
 		if a.sshPool != nil {
 			chatCtx = ai.WithSSHPool(chatCtx, a.sshPool)
@@ -2038,7 +1995,7 @@ func (a *App) makeGrantRequestFunc() ai.GrantRequestFunc {
 
 		resp := a.handleGrantApproval(approval.ApprovalRequest{
 			Type:        "grant",
-			SessionID:   fmt.Sprintf("grant_%d_%d", a.currentConversationID, time.Now().UnixNano()),
+			SessionID:   fmt.Sprintf("conv_%d", a.currentConversationID),
 			GrantItems:  grantItems,
 			Description: reason,
 		})

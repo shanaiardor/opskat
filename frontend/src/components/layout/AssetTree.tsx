@@ -42,6 +42,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { getIconComponent, getIconColor } from "@/components/asset/IconPicker";
+import { pinyinMatch } from "@/lib/pinyin";
 import { useAssetStore } from "@/stores/assetStore";
 import { useTerminalStore } from "@/stores/terminalStore";
 import { useActiveAssetIds } from "@/hooks/useActiveAssetIds";
@@ -97,7 +98,7 @@ export function AssetTree({
 
   if (collapsed) return null;
 
-  const filteredAssets = filter ? assets.filter((a) => a.Name.toLowerCase().includes(filter.toLowerCase())) : assets;
+  const filteredAssets = filter ? assets.filter((a) => pinyinMatch(a.Name, filter)) : assets;
 
   // Group assets by GroupID
   const groupedAssets = new Map<number, asset_entity.Asset[]>();

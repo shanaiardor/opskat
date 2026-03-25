@@ -8,7 +8,6 @@ import (
 	"github.com/opskat/opskat/internal/ai"
 	"github.com/opskat/opskat/internal/approval"
 	"github.com/opskat/opskat/internal/bootstrap"
-	"github.com/opskat/opskat/internal/repository/grant_repo"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/google/uuid"
@@ -32,45 +31,11 @@ func (ar ApprovalResult) ToCheckResult() *ai.CheckResult {
 	}
 }
 
-// requireApproval 检查命令策略 → Grant 匹配 → 桌面端审批。
+// requireApproval 检查命令策略 → DB Grant 匹配 → 桌面端审批。
 // exec/sql/redis 类型支持离线模式：策略/Grant 匹配通过则放行，否则拒绝并提示允许的命令。
 // 其他类型（cp/create/update）离线时直接报错。
 func requireApproval(ctx context.Context, req approval.ApprovalRequest) (ApprovalResult, error) {
-	var policyHints []string // 保留 NeedConfirm 的提示信息，供离线拒绝使用
-
-	// Stage 1: 策略前置检查（exec/sql/redis）
-	if req.AssetID > 0 && req.Command != "" {
-		var result ai.CheckResult
-		switch req.Type {
-		case "exec":
-			result = ai.CheckPolicyOnly(ctx, req.AssetID, req.Command)
-		case "sql":
-			result = ai.CheckSQLPolicyForOpsctl(ctx, req.AssetID, req.Command)
-		case "redis":
-			result = ai.CheckRedisPolicyForOpsctl(ctx, req.AssetID, req.Command)
-		}
-
-		switch result.Decision {
-		case ai.Allow:
-			return ApprovalResult{
-				Decision:       ai.Allow,
-				DecisionSource: result.DecisionSource,
-				MatchedPattern: result.MatchedPattern,
-				SessionID:      req.SessionID,
-			}, nil
-		case ai.Deny:
-			return ApprovalResult{
-				Decision:       ai.Deny,
-				DecisionSource: result.DecisionSource,
-				MatchedPattern: result.MatchedPattern,
-				SessionID:      req.SessionID,
-			}, fmt.Errorf("command denied by policy: %s", result.Message)
-		default: // NeedConfirm -> fall through
-			policyHints = result.HintRules
-		}
-	}
-
-	// Stage 2: Auto-create session if none exists
+	// Stage 1: Auto-create session if none exists
 	if req.SessionID == "" {
 		id := uuid.New().String()
 		if err := writeActiveSession(id); err != nil {
@@ -79,27 +44,35 @@ func requireApproval(ctx context.Context, req approval.ApprovalRequest) (Approva
 		req.SessionID = id
 	}
 
-	// Stage 3: Check grant items with pattern matching
-	if req.SessionID != "" && req.Command != "" {
-		items, err := grant_repo.Grant().ListApprovedItems(ctx, req.SessionID)
-		if err == nil && len(items) > 0 {
-			for _, item := range items {
-				if item.AssetID != 0 && item.AssetID != req.AssetID {
-					continue
-				}
-				if matchGrantItem(req.Type, item.Command, req.Command) {
-					return ApprovalResult{
-						Decision:       ai.Allow,
-						DecisionSource: ai.SourceGrantAllow,
-						MatchedPattern: item.Command,
-						SessionID:      req.SessionID,
-					}, nil
-				}
-			}
+	// Stage 2: 统一权限检查（策略 + DB Grant）— 与 AI run_command 共用 CheckPermission
+	var permResult ai.CheckResult
+	var policyHints []string
+	if req.AssetID > 0 && req.Command != "" {
+		// 注入 sessionID 到 context，供 matchGrantPatterns 使用
+		permCtx := ai.WithSessionID(ctx, req.SessionID)
+		permResult = ai.CheckPermission(permCtx, req.Type, req.AssetID, req.Command)
+
+		switch permResult.Decision {
+		case ai.Allow:
+			return ApprovalResult{
+				Decision:       ai.Allow,
+				DecisionSource: permResult.DecisionSource,
+				MatchedPattern: permResult.MatchedPattern,
+				SessionID:      req.SessionID,
+			}, nil
+		case ai.Deny:
+			return ApprovalResult{
+				Decision:       ai.Deny,
+				DecisionSource: permResult.DecisionSource,
+				MatchedPattern: permResult.MatchedPattern,
+				SessionID:      req.SessionID,
+			}, fmt.Errorf("command denied by policy: %s", permResult.Message)
+		default: // NeedConfirm → fall through to desktop approval
+			policyHints = permResult.HintRules
 		}
 	}
 
-	// Stage 4: Connect to desktop app via Unix socket
+	// Stage 3: Connect to desktop app via Unix socket
 	dataDir := bootstrap.AppDataDir()
 	sockPath := approval.SocketPath(dataDir)
 
@@ -144,30 +117,11 @@ func requireApproval(ctx context.Context, req approval.ApprovalRequest) (Approva
 		}
 	}
 
-	// 区分是 grant 规则自动放行还是用户手动允许
-	source := ai.SourceUserAllow
-	matchedPattern := ""
-	if resp.Reason == "grant_match" {
-		source = ai.SourceGrantAllow
-		matchedPattern = resp.MatchedPattern
-	}
 	return ApprovalResult{
 		Decision:       ai.Allow,
-		DecisionSource: source,
-		MatchedPattern: matchedPattern,
+		DecisionSource: ai.SourceUserAllow,
 		SessionID:      req.SessionID,
 	}, nil
-}
-
-// matchGrantItem 按请求类型选择合适的匹配函数匹配 grant item
-func matchGrantItem(reqType, pattern, command string) bool {
-	switch reqType {
-	case "redis":
-		return ai.MatchRedisRule(pattern, command)
-	default:
-		// exec 和 sql 都使用 MatchCommandRule
-		return ai.MatchCommandRule(pattern, command)
-	}
 }
 
 // formatOfflineDenyMessage 构造离线拒绝的错误信息，包含允许的命令提示
