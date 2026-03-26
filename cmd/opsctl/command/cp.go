@@ -87,7 +87,7 @@ func cmdCp(ctx context.Context, handlers map[string]ai.ToolHandlerFunc, args []s
 			"asset_id":    float64(dstAssetID),
 			"local_path":  src,
 			"remote_path": dstPath,
-		})
+		}, approvalResult.ToCheckResult())
 		return exitCode
 
 	case srcIsRemote && !dstIsRemote:
@@ -96,7 +96,7 @@ func cmdCp(ctx context.Context, handlers map[string]ai.ToolHandlerFunc, args []s
 			"asset_id":    float64(srcAssetID),
 			"remote_path": srcPath,
 			"local_path":  dst,
-		})
+		}, approvalResult.ToCheckResult())
 		return exitCode
 
 	default:

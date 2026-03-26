@@ -22,7 +22,7 @@ func buildHandlerMap() map[string]ai.ToolHandlerFunc {
 	return m
 }
 
-func callHandler(ctx context.Context, handlers map[string]ai.ToolHandlerFunc, toolName string, params map[string]any) int {
+func callHandler(ctx context.Context, handlers map[string]ai.ToolHandlerFunc, toolName string, params map[string]any, decision ...*ai.CheckResult) int {
 	handler, ok := handlers[toolName]
 	if !ok {
 		fmt.Fprintf(os.Stderr, "Internal error: unknown tool %s\n", toolName)
@@ -41,7 +41,11 @@ func callHandler(ctx context.Context, handlers map[string]ai.ToolHandlerFunc, to
 	if marshalErr != nil {
 		logger.Default().Warn("marshal audit params", zap.Error(marshalErr))
 	}
-	writeOpsctlAudit(ctx, toolName, string(argsJSON), result, err, nil)
+	var dec *ai.CheckResult
+	if len(decision) > 0 {
+		dec = decision[0]
+	}
+	writeOpsctlAudit(ctx, toolName, string(argsJSON), result, err, dec)
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

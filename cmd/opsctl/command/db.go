@@ -74,7 +74,7 @@ func cmdSQL(ctx context.Context, handlers map[string]ai.ToolHandlerFunc, args []
 	if *database != "" {
 		params["database"] = *database
 	}
-	return callHandler(auditCtx, handlers, "exec_sql", params)
+	return callHandler(auditCtx, handlers, "exec_sql", params, approvalResult.ToCheckResult())
 }
 
 func cmdRedisCmd(ctx context.Context, handlers map[string]ai.ToolHandlerFunc, args []string, session string) int {
@@ -128,7 +128,7 @@ func cmdRedisCmd(ctx context.Context, handlers map[string]ai.ToolHandlerFunc, ar
 	if *db >= 0 {
 		params["db"] = float64(*db)
 	}
-	return callHandler(auditCtx, handlers, "exec_redis", params)
+	return callHandler(auditCtx, handlers, "exec_redis", params, approvalResult.ToCheckResult())
 }
 
 func printSQLUsage() {
