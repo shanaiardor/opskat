@@ -13,6 +13,7 @@ function useUptime(connectedAt: number | undefined, connected: boolean): string 
   const [elapsed, setElapsed] = useState("");
   useEffect(() => {
     if (!connected || !connectedAt) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setElapsed("");
       return;
     }

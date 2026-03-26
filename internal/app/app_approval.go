@@ -34,6 +34,11 @@ func (a *App) startApprovalServer(authToken string) {
 			return a.handleGrantApproval(req)
 		}
 
+		// 批量执行审批
+		if req.Type == "batch" {
+			return a.handleBatchApproval(req)
+		}
+
 		// 单条审批
 		confirmID := fmt.Sprintf("opsctl_%d", time.Now().UnixNano())
 
@@ -85,6 +90,47 @@ func (a *App) startSSHPoolServer(authToken string) {
 	if err := a.sshProxyServer.Start(sockPath); err != nil {
 		log.Printf("SSH pool server failed to start: %v", err)
 		return
+	}
+}
+
+// handleBatchApproval 处理批量执行审批（exec/sql/redis 混合）
+func (a *App) handleBatchApproval(req approval.ApprovalRequest) approval.ApprovalResponse {
+	confirmID := fmt.Sprintf("batch_%d", time.Now().UnixNano())
+
+	// 构建前端事件数据
+	items := make([]map[string]any, 0, len(req.BatchItems))
+	for _, item := range req.BatchItems {
+		items = append(items, map[string]any{
+			"type":       item.Type,
+			"asset_id":   item.AssetID,
+			"asset_name": item.AssetName,
+			"command":    item.Command,
+		})
+	}
+
+	// 激活应用窗口
+	a.activateWindow()
+
+	wailsRuntime.EventsEmit(a.ctx, "opsctl:batch-approval", map[string]any{
+		"confirm_id": confirmID,
+		"session_id": req.SessionID,
+		"items":      items,
+	})
+
+	ch := make(chan bool, 1)
+	a.pendingApprovals.Store(confirmID, ch)
+	defer a.pendingApprovals.Delete(confirmID)
+
+	select {
+	case approved := <-ch:
+		if approved {
+			return approval.ApprovalResponse{Approved: true}
+		}
+		return approval.ApprovalResponse{Approved: false, Reason: "user denied"}
+	case <-a.ctx.Done():
+		return approval.ApprovalResponse{Approved: false, Reason: "app shutting down"}
+	case <-a.shutdownCh:
+		return approval.ApprovalResponse{Approved: false, Reason: "app shutting down"}
 	}
 }
 

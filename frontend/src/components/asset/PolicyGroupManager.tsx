@@ -88,6 +88,7 @@ export function PolicyGroupManager({ open, onOpenChange, onGroupsChanged, initia
   }, [activeTab]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (open) fetchGroups();
   }, [open, fetchGroups]);
 

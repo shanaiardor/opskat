@@ -112,10 +112,7 @@ export function SSHConfigSection({
       <div className="grid gap-2">
         <Label>{t("asset.host")}</Label>
         <div className="flex gap-2">
-          <Select
-            value={connectionType}
-            onValueChange={(v) => setConnectionType(v as "direct" | "jumphost" | "proxy")}
-          >
+          <Select value={connectionType} onValueChange={(v) => setConnectionType(v as "direct" | "jumphost" | "proxy")}>
             <SelectTrigger className="w-[100px] shrink-0">
               <SelectValue />
             </SelectTrigger>
@@ -125,12 +122,7 @@ export function SSHConfigSection({
               <SelectItem value="proxy">{t("asset.connectionProxy")}</SelectItem>
             </SelectContent>
           </Select>
-          <Input
-            className="flex-1"
-            value={host}
-            onChange={(e) => setHost(e.target.value)}
-            placeholder="192.168.1.1"
-          />
+          <Input className="flex-1" value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.1" />
           <Input
             className="w-[80px] shrink-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             type="number"
@@ -192,11 +184,7 @@ export function SSHConfigSection({
           <div className="grid grid-cols-2 gap-2">
             <div className="grid gap-1">
               <Label className="text-xs">{t("asset.proxyUsername")}</Label>
-              <Input
-                className="h-8 text-xs"
-                value={proxyUsername}
-                onChange={(e) => setProxyUsername(e.target.value)}
-              />
+              <Input className="h-8 text-xs" value={proxyUsername} onChange={(e) => setProxyUsername(e.target.value)} />
             </div>
             <div className="grid gap-1">
               <Label className="text-xs">{t("asset.proxyPassword")}</Label>

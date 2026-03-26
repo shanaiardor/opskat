@@ -186,6 +186,10 @@ export function GetOpsctlInstallDir() {
   return window['go']['app']['App']['GetOpsctlInstallDir']();
 }
 
+export function GetPluginReferenceDir() {
+  return window['go']['app']['App']['GetPluginReferenceDir']();
+}
+
 export function GetSSHPoolConnections() {
   return window['go']['app']['App']['GetSSHPoolConnections']();
 }
@@ -284,6 +288,10 @@ export function MoveAsset(arg1, arg2) {
 
 export function MoveGroup(arg1, arg2) {
   return window['go']['app']['App']['MoveGroup'](arg1, arg2);
+}
+
+export function OpenDirectory(arg1) {
+  return window['go']['app']['App']['OpenDirectory'](arg1);
 }
 
 export function PreviewGistBackup(arg1, arg2, arg3) {

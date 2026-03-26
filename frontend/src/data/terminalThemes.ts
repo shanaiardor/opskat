@@ -24,6 +24,32 @@ export interface TerminalTheme {
   brightWhite: string;
 }
 
+/** 默认亮色终端主题 */
+export const defaultLightTheme: TerminalTheme = {
+  id: "default-light",
+  name: "Default Light",
+  background: "#ffffff",
+  foreground: "#383a42",
+  cursor: "#383a42",
+  selectionBackground: "#add6ff",
+  black: "#383a42",
+  red: "#e45649",
+  green: "#50a14f",
+  yellow: "#c18401",
+  blue: "#4078f2",
+  magenta: "#a626a4",
+  cyan: "#0184bc",
+  white: "#fafafa",
+  brightBlack: "#4f525e",
+  brightRed: "#e06c75",
+  brightGreen: "#98c379",
+  brightYellow: "#e5c07b",
+  brightBlue: "#61afef",
+  brightMagenta: "#c678dd",
+  brightCyan: "#56b6c2",
+  brightWhite: "#ffffff",
+};
+
 export const builtinThemes: TerminalTheme[] = [
   {
     id: "tokyonight",

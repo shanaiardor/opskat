@@ -7,7 +7,8 @@ import { EventsOn, EventsOff } from "../../../wailsjs/runtime/runtime";
 import { useShortcutStore, matchShortcut } from "@/stores/shortcutStore";
 import { useTerminalStore } from "@/stores/terminalStore";
 import { useTerminalThemeStore, toXtermTheme } from "@/stores/terminalThemeStore";
-import { builtinThemes } from "@/data/terminalThemes";
+import { builtinThemes, defaultLightTheme } from "@/data/terminalThemes";
+import { useResolvedTheme } from "@/components/theme-provider";
 
 interface TerminalProps {
   sessionId: string;
@@ -22,12 +23,15 @@ export function Terminal({ sessionId, active }: TerminalProps) {
   const fontSize = useTerminalThemeStore((s) => s.fontSize);
   const selectedThemeId = useTerminalThemeStore((s) => s.selectedThemeId);
   const customThemes = useTerminalThemeStore((s) => s.customThemes);
+  const resolvedTheme = useResolvedTheme();
   const xtermTheme = useMemo(() => {
-    if (selectedThemeId === "default") return undefined;
+    if (selectedThemeId === "default") {
+      return resolvedTheme === "light" ? toXtermTheme(defaultLightTheme) : undefined;
+    }
     const theme =
       builtinThemes.find((t) => t.id === selectedThemeId) || customThemes.find((t) => t.id === selectedThemeId);
     return theme ? toXtermTheme(theme) : undefined;
-  }, [selectedThemeId, customThemes]);
+  }, [selectedThemeId, customThemes, resolvedTheme]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -106,6 +110,7 @@ export function Terminal({ sessionId, active }: TerminalProps) {
       termRef.current = null;
       fitAddonRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   // 主题或字体变更时实时刷新终端

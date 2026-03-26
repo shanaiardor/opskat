@@ -10,6 +10,7 @@ import (
 
 	"github.com/opskat/opskat/internal/ai"
 	"github.com/opskat/opskat/internal/bootstrap"
+	"github.com/opskat/opskat/internal/buildinfo"
 	"github.com/opskat/opskat/internal/sshpool"
 
 	"github.com/cago-frame/cago/configs"
@@ -60,14 +61,17 @@ func Execute() int {
 	args := remaining[1:]
 
 	if verb == "version" {
-		fmt.Println(configs.Version)
+		v := configs.Version
+		if c := buildinfo.ShortCommitID(); c != "" {
+			v += " (" + c + ")"
+		}
+		fmt.Println(v)
 		return 0
 	}
 	if verb == "help" || verb == "-h" || verb == "--help" {
 		printUsage()
 		return 0
 	}
-
 	// Initialize database, credentials, repositories
 	ctx := context.Background()
 	if err := bootstrap.Init(ctx, bootstrap.Options{
@@ -119,6 +123,8 @@ func Execute() int {
 		return cmdRedisCmd(ctx, handlers, args, resolvedSession)
 	case "ssh":
 		return cmdSSH(ctx, args)
+	case "batch":
+		return cmdBatch(ctx, handlers, args, resolvedSession)
 	case "grant":
 		return cmdGrant(ctx, args, resolvedSession)
 	case "session":
@@ -145,6 +151,7 @@ Commands:
   create    Create a new resource (ssh, database, or redis)
   update    Update an existing resource
   cp        Copy files between local and remote servers (scp-style)
+  batch     Execute multiple commands in parallel (exec/sql/redis)
   grant     Submit a batch grant for approval
   session   Manage approval sessions (start, end, status)
   version   Print version information

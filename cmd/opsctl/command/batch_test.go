@@ -1,0 +1,188 @@
+package command
+
+import (
+	"encoding/json"
+	"testing"
+
+	. "github.com/smartystreets/goconvey/convey"
+)
+
+func TestParseBatchArg(t *testing.T) {
+	Convey("parseBatchArg", t, func() {
+		Convey("asset:command defaults to exec", func() {
+			cmd, err := parseBatchArg("web-01:uptime")
+			So(err, ShouldBeNil)
+			So(cmd.Type, ShouldEqual, "exec")
+			So(cmd.Asset, ShouldEqual, "web-01")
+			So(cmd.Command, ShouldEqual, "uptime")
+		})
+
+		Convey("numeric asset ID", func() {
+			cmd, err := parseBatchArg("1:df -h")
+			So(err, ShouldBeNil)
+			So(cmd.Type, ShouldEqual, "exec")
+			So(cmd.Asset, ShouldEqual, "1")
+			So(cmd.Command, ShouldEqual, "df -h")
+		})
+
+		Convey("exec:asset:command", func() {
+			cmd, err := parseBatchArg("exec:production/web-01:uptime")
+			So(err, ShouldBeNil)
+			So(cmd.Type, ShouldEqual, "exec")
+			So(cmd.Asset, ShouldEqual, "production/web-01")
+			So(cmd.Command, ShouldEqual, "uptime")
+		})
+
+		Convey("sql:asset:command", func() {
+			cmd, err := parseBatchArg("sql:db-01:SELECT COUNT(*) FROM users")
+			So(err, ShouldBeNil)
+			So(cmd.Type, ShouldEqual, "sql")
+			So(cmd.Asset, ShouldEqual, "db-01")
+			So(cmd.Command, ShouldEqual, "SELECT COUNT(*) FROM users")
+		})
+
+		Convey("redis:asset:command", func() {
+			cmd, err := parseBatchArg("redis:cache:PING")
+			So(err, ShouldBeNil)
+			So(cmd.Type, ShouldEqual, "redis")
+			So(cmd.Asset, ShouldEqual, "cache")
+			So(cmd.Command, ShouldEqual, "PING")
+		})
+
+		Convey("command with colons preserved", func() {
+			cmd, err := parseBatchArg("sql:db:SELECT * FROM t WHERE ts > '2024-01-01T00:00:00'")
+			So(err, ShouldBeNil)
+			So(cmd.Type, ShouldEqual, "sql")
+			So(cmd.Asset, ShouldEqual, "db")
+			So(cmd.Command, ShouldEqual, "SELECT * FROM t WHERE ts > '2024-01-01T00:00:00'")
+		})
+
+		Convey("no colon returns error", func() {
+			_, err := parseBatchArg("uptime")
+			So(err, ShouldNotBeNil)
+		})
+
+		Convey("type prefix without asset:command returns error", func() {
+			_, err := parseBatchArg("sql:SELECT 1")
+			// "sql" is type, "SELECT 1" has no colon → error
+			So(err, ShouldNotBeNil)
+		})
+
+		Convey("unknown prefix treated as asset name", func() {
+			cmd, err := parseBatchArg("myserver:hostname")
+			So(err, ShouldBeNil)
+			So(cmd.Type, ShouldEqual, "exec")
+			So(cmd.Asset, ShouldEqual, "myserver")
+			So(cmd.Command, ShouldEqual, "hostname")
+		})
+	})
+}
+
+func TestParseBatchInput(t *testing.T) {
+	Convey("parseBatchInput args mode", t, func() {
+		Convey("multiple args", func() {
+			cmds, err := parseBatchInput([]string{"1:uptime", "sql:2:SELECT 1", "redis:3:PING"})
+			So(err, ShouldBeNil)
+			So(len(cmds), ShouldEqual, 3)
+
+			So(cmds[0].Type, ShouldEqual, "exec")
+			So(cmds[0].Asset, ShouldEqual, "1")
+			So(cmds[0].Command, ShouldEqual, "uptime")
+
+			So(cmds[1].Type, ShouldEqual, "sql")
+			So(cmds[1].Asset, ShouldEqual, "2")
+			So(cmds[1].Command, ShouldEqual, "SELECT 1")
+
+			So(cmds[2].Type, ShouldEqual, "redis")
+			So(cmds[2].Asset, ShouldEqual, "3")
+			So(cmds[2].Command, ShouldEqual, "PING")
+		})
+
+		Convey("empty args returns nil", func() {
+			cmds, err := parseBatchInput([]string{})
+			So(err, ShouldBeNil)
+			So(cmds, ShouldBeNil)
+		})
+
+		Convey("invalid arg returns error", func() {
+			_, err := parseBatchInput([]string{"no-colon"})
+			So(err, ShouldNotBeNil)
+		})
+	})
+}
+
+func TestBatchInputJSON(t *testing.T) {
+	Convey("batchInput JSON deserialization", t, func() {
+		Convey("full input", func() {
+			data := `{"commands":[
+				{"asset":"web-01","type":"exec","command":"uptime"},
+				{"asset":"db-01","type":"sql","command":"SELECT 1"},
+				{"asset":"cache","type":"redis","command":"PING"}
+			]}`
+			var input batchInput
+			err := json.Unmarshal([]byte(data), &input)
+			So(err, ShouldBeNil)
+			So(len(input.Commands), ShouldEqual, 3)
+			So(input.Commands[0].Type, ShouldEqual, "exec")
+			So(input.Commands[1].Type, ShouldEqual, "sql")
+			So(input.Commands[2].Type, ShouldEqual, "redis")
+		})
+
+		Convey("type defaults to empty (caller fills exec)", func() {
+			data := `{"commands":[{"asset":"1","command":"uptime"}]}`
+			var input batchInput
+			err := json.Unmarshal([]byte(data), &input)
+			So(err, ShouldBeNil)
+			So(input.Commands[0].Type, ShouldEqual, "")
+		})
+
+		Convey("empty commands", func() {
+			data := `{"commands":[]}`
+			var input batchInput
+			err := json.Unmarshal([]byte(data), &input)
+			So(err, ShouldBeNil)
+			So(len(input.Commands), ShouldEqual, 0)
+		})
+	})
+}
+
+func TestBatchOutputJSON(t *testing.T) {
+	Convey("batchOutput JSON serialization", t, func() {
+		output := batchOutput{
+			Results: []batchResult{
+				{AssetID: 1, AssetName: "web-01", Type: "exec", Command: "uptime", ExitCode: 0, Stdout: "up 30 days"},
+				{AssetID: 2, AssetName: "db-01", Type: "sql", Command: "SELECT 1", ExitCode: 1, Error: "connection refused"},
+			},
+		}
+		data, err := json.Marshal(output)
+		So(err, ShouldBeNil)
+
+		var decoded batchOutput
+		err = json.Unmarshal(data, &decoded)
+		So(err, ShouldBeNil)
+		So(len(decoded.Results), ShouldEqual, 2)
+		So(decoded.Results[0].ExitCode, ShouldEqual, 0)
+		So(decoded.Results[0].Stdout, ShouldEqual, "up 30 days")
+		So(decoded.Results[1].ExitCode, ShouldEqual, 1)
+		So(decoded.Results[1].Error, ShouldEqual, "connection refused")
+	})
+}
+
+func TestBatchAuditTool(t *testing.T) {
+	Convey("batchAuditTool", t, func() {
+		So(batchAuditTool("exec"), ShouldEqual, "exec")
+		So(batchAuditTool("sql"), ShouldEqual, "exec_sql")
+		So(batchAuditTool("redis"), ShouldEqual, "exec_redis")
+		So(batchAuditTool("unknown"), ShouldEqual, "exec")
+	})
+}
+
+func TestValidBatchTypes(t *testing.T) {
+	Convey("validBatchTypes", t, func() {
+		So(validBatchTypes["exec"], ShouldBeTrue)
+		So(validBatchTypes["sql"], ShouldBeTrue)
+		So(validBatchTypes["redis"], ShouldBeTrue)
+		So(validBatchTypes["cp"], ShouldBeFalse)
+		So(validBatchTypes[""], ShouldBeFalse)
+	})
+}

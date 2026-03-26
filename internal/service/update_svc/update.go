@@ -335,11 +335,11 @@ func updateMacOSFromDMG(dmgPath, appDir string) error {
 	}()
 
 	// 挂载 DMG
-	if output, err := exec.Command("hdiutil", "attach", dmgPath, "-mountpoint", mountPoint, "-nobrowse", "-quiet").CombinedOutput(); err != nil {
+	if output, err := exec.Command("hdiutil", "attach", dmgPath, "-mountpoint", mountPoint, "-nobrowse", "-quiet").CombinedOutput(); err != nil { //nolint:gosec
 		return fmt.Errorf("mount DMG failed: %s: %w", string(output), err)
 	}
 	defer func() {
-		if output, err := exec.Command("hdiutil", "detach", mountPoint, "-quiet").CombinedOutput(); err != nil {
+		if output, err := exec.Command("hdiutil", "detach", mountPoint, "-quiet").CombinedOutput(); err != nil { //nolint:gosec
 			logger.Default().Warn("unmount DMG", zap.String("output", string(output)), zap.Error(err))
 		}
 	}()
@@ -359,7 +359,7 @@ func updateMacOSFromDMG(dmgPath, appDir string) error {
 	}
 
 	// 从挂载点复制新的 .app（跨挂载点无法 rename）
-	if output, err := exec.Command("cp", "-R", newAppPath, appDir).CombinedOutput(); err != nil {
+	if output, err := exec.Command("cp", "-R", newAppPath, appDir).CombinedOutput(); err != nil { //nolint:gosec
 		if renameErr := os.Rename(backupDir, appDir); renameErr != nil {
 			logger.Default().Error("restore backup after failed install", zap.Error(renameErr))
 		}
@@ -434,7 +434,7 @@ func updateLinuxFromDeb(debPath, execPath string) error {
 		}
 	}()
 
-	if output, err := exec.Command("dpkg", "-x", debPath, tmpExtractDir).CombinedOutput(); err != nil {
+	if output, err := exec.Command("dpkg", "-x", debPath, tmpExtractDir).CombinedOutput(); err != nil { //nolint:gosec
 		return fmt.Errorf("extract deb failed: %s: %w", string(output), err)
 	}
 

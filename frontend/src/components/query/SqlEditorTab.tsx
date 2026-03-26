@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Play, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,7 @@ export function SqlEditorTab({ tabId, innerTabId }: SqlEditorTabProps) {
 
   const dbState = dbStates[tabId];
   const assetId = queryMeta?.assetId ?? 0;
-  const databases = dbState?.databases || [];
+  const databases = useMemo(() => dbState?.databases || [], [dbState?.databases]);
 
   // Restore persisted state from store
   const innerTab = dbState?.innerTabs.find((t) => t.id === innerTabId);

@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Server, Database, Pencil, Trash2, TerminalSquare, Loader2 } from "lucide-react";
+import Markdown from "react-markdown";
+import rehypeSanitize from "rehype-sanitize";
+import remarkBreaks from "remark-breaks";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
@@ -564,7 +567,11 @@ export function AssetDetail({ asset, isConnecting, onEdit, onDelete, onConnect }
             <Separator />
             <div className="text-sm">
               <span className="text-muted-foreground">{t("asset.description")}</span>
-              <p className="mt-1">{asset.Description}</p>
+              <div className="mt-1 prose prose-sm dark:prose-invert prose-p:my-1 prose-pre:my-1 prose-pre:overflow-x-auto max-w-none">
+                <Markdown remarkPlugins={[remarkBreaks]} rehypePlugins={[rehypeSanitize]}>
+                  {asset.Description}
+                </Markdown>
+              </div>
             </div>
           </>
         )}

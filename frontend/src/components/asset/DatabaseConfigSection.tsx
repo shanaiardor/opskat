@@ -71,12 +71,7 @@ export function DatabaseConfigSection({
       <div className="grid gap-2">
         <Label>{t("asset.host")}</Label>
         <div className="flex gap-2">
-          <Input
-            className="flex-1"
-            value={host}
-            onChange={(e) => setHost(e.target.value)}
-            placeholder="192.168.1.1"
-          />
+          <Input className="flex-1" value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.1" />
           <Input
             className="w-[80px] shrink-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             type="number"
@@ -135,11 +130,7 @@ export function DatabaseConfigSection({
       {/* Params */}
       <div className="grid gap-2">
         <Label>{t("asset.params")}</Label>
-        <Input
-          value={params}
-          onChange={(e) => setParams(e.target.value)}
-          placeholder={t("asset.paramsPlaceholder")}
-        />
+        <Input value={params} onChange={(e) => setParams(e.target.value)} placeholder={t("asset.paramsPlaceholder")} />
       </div>
 
       {/* Read Only */}

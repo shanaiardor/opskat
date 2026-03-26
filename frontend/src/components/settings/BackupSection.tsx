@@ -306,9 +306,7 @@ export function BackupSection() {
           ) : (
             <>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">
-                  {t("backup.gistLoggedIn", { user: ghUser })}
-                </span>
+                <span className="text-sm text-muted-foreground">{t("backup.gistLoggedIn", { user: ghUser })}</span>
                 <Button variant="ghost" size="sm" onClick={handleGitHubLogout} className="gap-1">
                   <LogOut className="h-3.5 w-3.5" />
                   {t("backup.gistLogout")}

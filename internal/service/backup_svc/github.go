@@ -15,9 +15,14 @@ import (
 )
 
 const (
-	githubClientID     = "Ov23li4zpB1UQXpx4h5r"
-	githubClientSecret = "1973fe43dd08301b332cc2e9bdc28b5695cfd84d" //nolint:gosec // OAuth app client secret, public by design
+	githubClientID     = "Ov23liydPaSoHVMqecz9"
 	gistBackupFilename = "opskat-backup.encrypted.json"
+)
+
+// 可在测试中覆盖的 base URL
+var (
+	githubBaseURL    = "https://github.com"
+	githubAPIBaseURL = "https://api.github.com"
 )
 
 // DeviceFlowInfo Device Flow 初始化返回
@@ -49,7 +54,7 @@ func StartDeviceFlow() (*DeviceFlowInfo, error) {
 		"client_id": {githubClientID},
 		"scope":     {"gist"},
 	}
-	req, err := http.NewRequest("POST", "https://github.com/login/device/code", strings.NewReader(data.Encode()))
+	req, err := http.NewRequest("POST", githubBaseURL+"/login/device/code", strings.NewReader(data.Encode()))
 	if err != nil {
 		logger.Default().Warn("create device code request", zap.Error(err))
 		return nil, fmt.Errorf("创建请求失败: %w", err)
@@ -99,7 +104,8 @@ func StartDeviceFlow() (*DeviceFlowInfo, error) {
 
 // PollDeviceAuth 轮询 Device Flow 授权结果，返回 access_token
 func PollDeviceAuth(ctx context.Context, deviceCode string, interval int) (string, error) {
-	ticker := time.NewTicker(time.Duration(interval) * time.Second)
+	currentInterval := time.Duration(interval) * time.Second
+	ticker := time.NewTicker(currentInterval)
 	defer ticker.Stop()
 
 	for {
@@ -107,34 +113,38 @@ func PollDeviceAuth(ctx context.Context, deviceCode string, interval int) (strin
 		case <-ctx.Done():
 			return "", fmt.Errorf("授权已取消")
 		case <-ticker.C:
-			token, done, err := pollOnce(deviceCode)
+			token, slowDown, done, err := pollOnce(deviceCode)
 			if err != nil {
 				return "", err
 			}
 			if done {
 				return token, nil
 			}
+			if slowDown {
+				currentInterval += 5 * time.Second
+				ticker.Reset(currentInterval)
+			}
 		}
 	}
 }
 
-func pollOnce(deviceCode string) (token string, done bool, err error) {
+func pollOnce(deviceCode string) (token string, slowDown bool, done bool, err error) {
 	data := url.Values{
 		"client_id":   {githubClientID},
 		"device_code": {deviceCode},
 		"grant_type":  {"urn:ietf:params:oauth:grant-type:device_code"},
 	}
-	req, err := http.NewRequest("POST", "https://github.com/login/oauth/access_token", strings.NewReader(data.Encode()))
+	req, err := http.NewRequest("POST", githubBaseURL+"/login/oauth/access_token", strings.NewReader(data.Encode()))
 	if err != nil {
 		logger.Default().Warn("create access token request", zap.Error(err))
-		return "", false, fmt.Errorf("创建请求失败: %w", err)
+		return "", false, false, fmt.Errorf("创建请求失败: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", false, fmt.Errorf("请求 GitHub 失败: %w", err)
+		return "", false, false, fmt.Errorf("请求 GitHub 失败: %w", err)
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
@@ -142,8 +152,15 @@ func pollOnce(deviceCode string) (token string, done bool, err error) {
 		}
 	}()
 
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", false, false, fmt.Errorf("读取响应失败: %w", err)
+	}
+
 	if resp.StatusCode != 200 {
-		return "", false, fmt.Errorf("GitHub 返回 HTTP %d", resp.StatusCode)
+		logger.Default().Warn("GitHub device auth poll non-200",
+			zap.Int("status", resp.StatusCode), zap.String("body", string(body)))
+		return "", false, false, fmt.Errorf("GitHub 返回 HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
 	var result struct {
@@ -151,32 +168,38 @@ func pollOnce(deviceCode string) (token string, done bool, err error) {
 		Error       string `json:"error"`
 		ErrorDesc   string `json:"error_description"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", false, fmt.Errorf("解析响应失败: %w", err)
+	if err := json.Unmarshal(body, &result); err != nil {
+		logger.Default().Warn("GitHub device auth poll parse error",
+			zap.Error(err), zap.String("body", string(body)))
+		return "", false, false, fmt.Errorf("解析响应失败: %w", err)
 	}
+
+	logger.Default().Info("GitHub device auth poll",
+		zap.String("error", result.Error), zap.Bool("hasToken", result.AccessToken != ""))
 
 	switch result.Error {
 	case "":
 		if result.AccessToken == "" {
-			return "", false, fmt.Errorf("GitHub 返回空 token")
+			logger.Default().Warn("GitHub returned empty token", zap.String("body", string(body)))
+			return "", false, false, fmt.Errorf("GitHub 返回空 token")
 		}
-		return result.AccessToken, true, nil
+		return result.AccessToken, false, true, nil
 	case "authorization_pending":
-		return "", false, nil
+		return "", false, false, nil
 	case "slow_down":
-		return "", false, nil
+		return "", true, false, nil
 	case "expired_token":
-		return "", false, fmt.Errorf("授权码已过期，请重新发起")
+		return "", false, false, fmt.Errorf("授权码已过期，请重新发起")
 	case "access_denied":
-		return "", false, fmt.Errorf("用户拒绝了授权")
+		return "", false, false, fmt.Errorf("用户拒绝了授权")
 	default:
-		return "", false, fmt.Errorf("GitHub 错误: %s", result.ErrorDesc)
+		return "", false, false, fmt.Errorf("GitHub 错误: %s", result.ErrorDesc)
 	}
 }
 
 // GetGitHubUser 获取当前用户信息
 func GetGitHubUser(token string) (*GitHubUser, error) {
-	req, err := http.NewRequest("GET", "https://api.github.com/user", nil)
+	req, err := http.NewRequest("GET", githubAPIBaseURL+"/user", nil)
 	if err != nil {
 		logger.Default().Warn("create GitHub user request", zap.Error(err))
 		return nil, fmt.Errorf("创建请求失败: %w", err)
@@ -229,10 +252,10 @@ func CreateOrUpdateGist(token, gistID string, content []byte) (*GistInfo, error)
 	var method, apiURL string
 	if gistID == "" {
 		method = "POST"
-		apiURL = "https://api.github.com/gists"
+		apiURL = githubAPIBaseURL + "/gists"
 	} else {
 		method = "PATCH"
-		apiURL = fmt.Sprintf("https://api.github.com/gists/%s", gistID)
+		apiURL = fmt.Sprintf("%s/gists/%s", githubAPIBaseURL, gistID)
 	}
 
 	req, err := http.NewRequest(method, apiURL, strings.NewReader(string(bodyJSON)))
@@ -281,7 +304,7 @@ func CreateOrUpdateGist(token, gistID string, content []byte) (*GistInfo, error)
 
 // GetGistContent 读取 Gist 中的备份内容
 func GetGistContent(token, gistID string) ([]byte, error) {
-	apiURL := fmt.Sprintf("https://api.github.com/gists/%s", gistID)
+	apiURL := fmt.Sprintf("%s/gists/%s", githubAPIBaseURL, gistID)
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		logger.Default().Warn("create gist content request", zap.Error(err))
@@ -325,7 +348,7 @@ func GetGistContent(token, gistID string) ([]byte, error) {
 
 // ListBackupGists 列出用户的 OpsKat 备份 Gist
 func ListBackupGists(token string) ([]*GistInfo, error) {
-	req, err := http.NewRequest("GET", "https://api.github.com/gists?per_page=100", nil)
+	req, err := http.NewRequest("GET", githubAPIBaseURL+"/gists?per_page=100", nil)
 	if err != nil {
 		logger.Default().Warn("create list gists request", zap.Error(err))
 		return nil, fmt.Errorf("创建请求失败: %w", err)

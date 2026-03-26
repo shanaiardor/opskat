@@ -19,9 +19,15 @@ func getOrder(item testItem) int { return item.order }
 func noopUpdate(_ int64, _ int) error { return nil }
 
 // recordUpdate 记录所有 updateOrder 调用
-func recordUpdate(calls *[]struct{ id int64; order int }) func(int64, int) error {
+func recordUpdate(calls *[]struct {
+	id    int64
+	order int
+}) func(int64, int) error {
 	return func(id int64, order int) error {
-		*calls = append(*calls, struct{ id int64; order int }{id, order})
+		*calls = append(*calls, struct {
+			id    int64
+			order int
+		}{id, order})
 		return nil
 	}
 }
@@ -35,7 +41,10 @@ func TestMoveItem(t *testing.T) {
 				{id: 2, order: 20},
 				{id: 3, order: 30},
 			}
-			var calls []struct{ id int64; order int }
+			var calls []struct {
+				id    int64
+				order int
+			}
 			err := MoveItem(int64(2), "up", items, getID, getOrder, recordUpdate(&calls))
 			So(err, ShouldBeNil)
 			So(len(calls), ShouldEqual, 2)
@@ -51,7 +60,10 @@ func TestMoveItem(t *testing.T) {
 				{id: 1, order: 10},
 				{id: 2, order: 20},
 			}
-			var calls []struct{ id int64; order int }
+			var calls []struct {
+				id    int64
+				order int
+			}
 			err := MoveItem(int64(1), "up", items, getID, getOrder, recordUpdate(&calls))
 			So(err, ShouldBeNil)
 			So(len(calls), ShouldEqual, 0)
@@ -63,7 +75,10 @@ func TestMoveItem(t *testing.T) {
 				{id: 2, order: 20},
 				{id: 3, order: 30},
 			}
-			var calls []struct{ id int64; order int }
+			var calls []struct {
+				id    int64
+				order int
+			}
 			err := MoveItem(int64(2), "down", items, getID, getOrder, recordUpdate(&calls))
 			So(err, ShouldBeNil)
 			So(len(calls), ShouldEqual, 2)
@@ -79,7 +94,10 @@ func TestMoveItem(t *testing.T) {
 				{id: 1, order: 10},
 				{id: 2, order: 20},
 			}
-			var calls []struct{ id int64; order int }
+			var calls []struct {
+				id    int64
+				order int
+			}
 			err := MoveItem(int64(2), "down", items, getID, getOrder, recordUpdate(&calls))
 			So(err, ShouldBeNil)
 			So(len(calls), ShouldEqual, 0)
@@ -91,7 +109,10 @@ func TestMoveItem(t *testing.T) {
 				{id: 2, order: 20},
 				{id: 3, order: 30},
 			}
-			var calls []struct{ id int64; order int }
+			var calls []struct {
+				id    int64
+				order int
+			}
 			err := MoveItem(int64(3), "top", items, getID, getOrder, recordUpdate(&calls))
 			So(err, ShouldBeNil)
 			So(len(calls), ShouldEqual, 1)
@@ -104,7 +125,10 @@ func TestMoveItem(t *testing.T) {
 				{id: 1, order: 10},
 				{id: 2, order: 20},
 			}
-			var calls []struct{ id int64; order int }
+			var calls []struct {
+				id    int64
+				order int
+			}
 			err := MoveItem(int64(1), "top", items, getID, getOrder, recordUpdate(&calls))
 			So(err, ShouldBeNil)
 			So(len(calls), ShouldEqual, 0)
@@ -134,7 +158,10 @@ func TestMoveItem(t *testing.T) {
 				{id: 1, order: 10},
 				{id: 2, order: 10}, // 与前一个 order 相同
 			}
-			var calls []struct{ id int64; order int }
+			var calls []struct {
+				id    int64
+				order int
+			}
 			err := MoveItem(int64(2), "up", items, getID, getOrder, recordUpdate(&calls))
 			So(err, ShouldBeNil)
 			So(len(calls), ShouldEqual, 2)
@@ -150,7 +177,10 @@ func TestMoveItem(t *testing.T) {
 				{id: 1, order: 10},
 				{id: 2, order: 10}, // 与后一个 order 相同
 			}
-			var calls []struct{ id int64; order int }
+			var calls []struct {
+				id    int64
+				order int
+			}
 			err := MoveItem(int64(1), "down", items, getID, getOrder, recordUpdate(&calls))
 			So(err, ShouldBeNil)
 			So(len(calls), ShouldEqual, 2)

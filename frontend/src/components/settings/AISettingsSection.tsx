@@ -17,16 +17,10 @@ import {
   GetDataDir,
   GetAppVersion,
   LoadAISetting,
+  OpenDirectory,
+  GetPluginReferenceDir,
 } from "../../../wailsjs/go/app/App";
-import {
-  Check,
-  Loader2,
-  ExternalLink,
-  RefreshCw,
-  ChevronDown,
-  ChevronUp,
-  Info,
-} from "lucide-react";
+import { Check, Loader2, ExternalLink, RefreshCw, ChevronDown, ChevronUp, Info, FolderOpen } from "lucide-react";
 import { toast } from "sonner";
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
 
@@ -270,9 +264,19 @@ function IntegrationSection() {
               {skillTargets
                 .filter((s) => s.installed)
                 .map((s) => (
-                  <div key={s.name} className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">{s.name}</span>
-                    <span className="font-mono text-xs truncate max-w-[300px]">{s.path}</span>
+                  <div key={s.name} className="flex items-center justify-between text-sm gap-2">
+                    <span className="text-muted-foreground shrink-0">{s.name}</span>
+                    <div className="flex items-center gap-1 min-w-0">
+                      <span className="font-mono text-xs truncate">{s.path}</span>
+                      <button
+                        type="button"
+                        className="shrink-0 p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                        onClick={() => OpenDirectory(s.path)}
+                        title={t("integration.openDir")}
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
             </div>
@@ -294,6 +298,17 @@ function IntegrationSection() {
             <Button variant="outline" size="sm" onClick={handlePreview}>
               {showPreview ? <ChevronUp className="h-3.5 w-3.5 mr-1" /> : <ChevronDown className="h-3.5 w-3.5 mr-1" />}
               {t("integration.skillPreview")}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                const dir = await GetPluginReferenceDir();
+                OpenDirectory(dir);
+              }}
+            >
+              <FolderOpen className="h-3.5 w-3.5 mr-1" />
+              {t("integration.openDir")}
             </Button>
           </div>
 
@@ -373,9 +388,7 @@ export function AISettingsSection({
       <Card>
         <CardHeader>
           <CardTitle className="text-base">AI Provider</CardTitle>
-          <CardDescription>
-            {configured ? "✓ " + t("settings.configured") : t("ai.notConfigured")}
-          </CardDescription>
+          <CardDescription>{configured ? "✓ " + t("settings.configured") : t("ai.notConfigured")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-2">

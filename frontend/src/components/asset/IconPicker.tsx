@@ -421,12 +421,14 @@ export function IconPicker({ value, onChange, type = "asset" }: IconPickerProps)
 }
 
 // Get icon component by name (supports "name#color" format)
+// eslint-disable-next-line react-refresh/only-export-components
 export function getIconComponent(value: string): IconComponent {
   const { name } = parseIconValue(value);
   return ALL_ICONS[name] || Server;
 }
 
 // Get color for an icon (supports "name#color" format, falls back to brand color)
+// eslint-disable-next-line react-refresh/only-export-components
 export function getIconColor(value: string): string | undefined {
   const { name, color } = parseIconValue(value);
   return color || ICON_COLORS[name];

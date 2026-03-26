@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/opskat/opskat/internal/bootstrap"
+	"github.com/opskat/opskat/internal/buildinfo"
 	"github.com/opskat/opskat/internal/embedded"
 	"github.com/opskat/opskat/internal/model/entity/audit_entity"
 	"github.com/opskat/opskat/internal/repository/audit_repo"
@@ -474,6 +475,24 @@ func (a *App) GetDataDir() string {
 	return bootstrap.AppDataDir()
 }
 
+// OpenDirectory 在系统文件管理器中打开指定目录
+func (a *App) OpenDirectory(path string) error {
+	var cmd string
+	var args []string
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = "open"
+		args = []string{path}
+	case "windows":
+		cmd = "explorer"
+		args = []string{path}
+	default: // linux
+		cmd = "xdg-open"
+		args = []string{path}
+	}
+	return exec.Command(cmd, args...).Start() //nolint:gosec
+}
+
 // --- Opsctl 安装 ---
 
 // OpsctlInfo opsctl CLI 检测结果
@@ -505,7 +524,7 @@ func (a *App) DetectOpsctl() OpsctlInfo {
 	}
 	info.Installed = true
 	info.Path = opsctlPath
-	out, err := exec.Command(opsctlPath, "version").Output() //nolint:gosec // path is from LookPath or known install dir
+	out, err := exec.Command(opsctlPath, "version").Output() //nolint:gosec
 	if err == nil {
 		info.Version = strings.TrimSpace(string(out))
 	}
@@ -525,7 +544,7 @@ func (a *App) InstallOpsctl(targetDir string) (string, error) {
 	return embedded.InstallOpsctl(targetDir)
 }
 
-// --- Skills ---
+// --- Skills / Plugin ---
 
 // SkillTarget AI Skill 安装目标
 type SkillTarget struct {
@@ -534,14 +553,68 @@ type SkillTarget struct {
 	Path      string `json:"path"`
 }
 
+// skillInstallType 安装格式类型
+type skillInstallType int
+
+const (
+	installClaude skillInstallType = iota // Claude Code 插件格式
+	installSkill                          // 普通 SKILL.md 格式（Codex/OpenCode）
+	installGemini                         // Gemini CLI 扩展格式
+)
+
 // skillTargetDefs 支持的 Skill 安装目标，添加新 CLI 只需在此追加
 var skillTargetDefs = []struct {
-	Name   string // 显示名称
-	SubDir string // home 目录下的子目录，如 ".claude"
+	Name     string                   // 显示名称
+	Type     skillInstallType         // 安装格式
+	SkillFn  func(home string) string // 返回安装目录
+	DetectFn func(path string) bool   // 检测是否已安装
 }{
-	{"Claude Code", ".claude"},
-	{"Codex", ".codex"},
-	{"OpenCode", ".opencode"},
+	{
+		"Claude Code", installClaude,
+		func(home string) string { return claudePluginDir(home) },
+		func(path string) bool {
+			_, err := os.Stat(filepath.Join(path, ".claude-plugin", "plugin.json"))
+			return err == nil
+		},
+	},
+	{
+		"Codex", installSkill,
+		func(home string) string { return filepath.Join(home, ".codex", "skills", "opsctl") },
+		func(path string) bool {
+			_, err := os.Stat(filepath.Join(path, "SKILL.md"))
+			return err == nil
+		},
+	},
+	{
+		"OpenCode", installSkill,
+		func(home string) string { return filepath.Join(home, ".config", "opencode", "skills", "opsctl") },
+		func(path string) bool {
+			_, err := os.Stat(filepath.Join(path, "SKILL.md"))
+			return err == nil
+		},
+	},
+	{
+		"Gemini CLI", installGemini,
+		func(home string) string { return filepath.Join(home, ".gemini", "extensions", "opsctl") },
+		func(path string) bool {
+			_, err := os.Stat(filepath.Join(path, "gemini-extension.json"))
+			return err == nil
+		},
+	},
+}
+
+const pluginRegistryName = "opskat"
+const pluginName = "opsctl"
+const pluginVersion = "1.0.0"
+
+// claudePluginDir 返回 Claude Code 插件目录（marketplace 内的插件根目录）
+func claudePluginDir(home string) string {
+	return filepath.Join(home, ".claude", "plugins", "marketplaces", pluginRegistryName, pluginName)
+}
+
+// claudeMarketplaceDir 返回 Claude Code 市场目录
+func claudeMarketplaceDir(home string) string {
+	return filepath.Join(home, ".claude", "plugins", "marketplaces", pluginRegistryName)
 }
 
 // DetectSkills 检测所有 AI 工具的 Skill 安装状态
@@ -552,12 +625,12 @@ func (a *App) DetectSkills() []SkillTarget {
 	}
 	targets := make([]SkillTarget, 0, len(skillTargetDefs))
 	for _, def := range skillTargetDefs {
-		skillDir := filepath.Join(home, def.SubDir, "skills", "opsctl")
-		installed := false
-		if _, err := os.Stat(filepath.Join(skillDir, "SKILL.md")); err == nil {
-			installed = true
-		}
-		targets = append(targets, SkillTarget{Name: def.Name, Installed: installed, Path: skillDir})
+		path := def.SkillFn(home)
+		targets = append(targets, SkillTarget{
+			Name:      def.Name,
+			Installed: def.DetectFn(path),
+			Path:      path,
+		})
 	}
 	return targets
 }
@@ -569,26 +642,229 @@ func (a *App) skillMDWithDataDir() string {
 	return strings.Replace(a.skillContent.SkillMD, "## Global Flags", insertion+"## Global Flags", 1)
 }
 
-// installSkillTo 将 Skill 文件安装到指定目录
+// installPluginTo 将 Skill 以插件格式安装到 Claude Code
+// pluginDir 是 marketplace 内的插件根目录（marketplaces/opskat/opsctl/）
+func (a *App) installPluginTo(pluginDir, home string) error {
+	// 创建插件目录结构（插件和市场 manifest 都在 marketplace 目录树内）
+	mktDir := claudeMarketplaceDir(home)
+	dirs := []string{
+		filepath.Join(pluginDir, ".claude-plugin"),
+		filepath.Join(pluginDir, "skills", "opsctl", "references"),
+		filepath.Join(pluginDir, "commands"),
+		filepath.Join(mktDir, ".claude-plugin"),
+	}
+	for _, d := range dirs {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			return fmt.Errorf("create directory %s failed: %w", d, err)
+		}
+	}
+
+	// 写入插件文件
+	files := map[string]string{
+		filepath.Join(pluginDir, ".claude-plugin", "plugin.json"):                 a.skillContent.PluginJSON,
+		filepath.Join(pluginDir, ".claude-plugin", "marketplace.json"):            a.skillContent.PluginMarketplaceJSON,
+		filepath.Join(pluginDir, "skills", "opsctl", "SKILL.md"):                  a.skillMDWithDataDir(),
+		filepath.Join(pluginDir, "skills", "opsctl", "references", "commands.md"): a.skillContent.CommandsMD,
+		filepath.Join(pluginDir, "commands", "init.md"):                           a.skillContent.InitMD,
+		// 市场根目录 manifest
+		filepath.Join(mktDir, ".claude-plugin", "marketplace.json"): a.skillContent.MarketplaceJSON,
+	}
+	for path, content := range files {
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			return fmt.Errorf("write %s failed: %w", filepath.Base(path), err)
+		}
+	}
+
+	// 注册到 installed_plugins.json + known_marketplaces.json + settings.json
+	if err := a.registerPlugin(home); err != nil {
+		return fmt.Errorf("register plugin failed: %w", err)
+	}
+
+	return nil
+}
+
+// registerPlugin 注册插件到 installed_plugins.json + known_marketplaces.json + settings.json
+func (a *App) registerPlugin(home string) error {
+	pluginsDir := filepath.Join(home, ".claude", "plugins")
+	if err := os.MkdirAll(pluginsDir, 0755); err != nil {
+		return err
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	key := pluginName + "@" + pluginRegistryName
+	pluginPath := claudePluginDir(home) // marketplaces/opskat/opsctl
+	mktPath := claudeMarketplaceDir(home)
+
+	// 1. installed_plugins.json
+	type pluginEntry struct {
+		Scope       string `json:"scope"`
+		InstallPath string `json:"installPath"`
+		Version     string `json:"version"`
+		InstalledAt string `json:"installedAt"`
+		LastUpdated string `json:"lastUpdated"`
+	}
+	type pluginsConfig struct {
+		Version int                      `json:"version"`
+		Plugins map[string][]pluginEntry `json:"plugins"`
+	}
+
+	pluginsFile := filepath.Join(pluginsDir, "installed_plugins.json")
+	cfg := pluginsConfig{Version: 2, Plugins: make(map[string][]pluginEntry)}
+	if data, err := os.ReadFile(pluginsFile); err == nil { //nolint:gosec // path from app data dir
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			logger.Default().Warn("parse installed_plugins.json failed, will overwrite", zap.Error(err))
+			cfg = pluginsConfig{Version: 2, Plugins: make(map[string][]pluginEntry)}
+		}
+	}
+
+	entries := cfg.Plugins[key]
+	found := false
+	for i, e := range entries {
+		if e.Scope == "user" {
+			entries[i].InstallPath = pluginPath
+			entries[i].Version = pluginVersion
+			entries[i].LastUpdated = now
+			found = true
+			break
+		}
+	}
+	if !found {
+		entries = append(entries, pluginEntry{
+			Scope:       "user",
+			InstallPath: pluginPath,
+			Version:     pluginVersion,
+			InstalledAt: now,
+			LastUpdated: now,
+		})
+	}
+	cfg.Plugins[key] = entries
+	if err := writeJSON(pluginsFile, cfg); err != nil {
+		return fmt.Errorf("write installed_plugins.json: %w", err)
+	}
+
+	// 2. known_marketplaces.json
+	kmFile := filepath.Join(pluginsDir, "known_marketplaces.json")
+	km := make(map[string]any)
+	if data, err := os.ReadFile(kmFile); err == nil { //nolint:gosec // path from app data dir
+		json.Unmarshal(data, &km) //nolint:errcheck,gosec // best-effort merge
+	}
+	km[pluginRegistryName] = map[string]any{
+		"source":          map[string]any{"source": "directory", "path": mktPath},
+		"installLocation": mktPath,
+		"lastUpdated":     now,
+	}
+	if err := writeJSON(kmFile, km); err != nil {
+		return fmt.Errorf("write known_marketplaces.json: %w", err)
+	}
+
+	// 3. settings.json — enabledPlugins + extraKnownMarketplaces
+	settingsFile := filepath.Join(home, ".claude", "settings.json")
+	sc := make(map[string]any)
+	if data, err := os.ReadFile(settingsFile); err == nil { //nolint:gosec // path from app data dir
+		json.Unmarshal(data, &sc) //nolint:errcheck,gosec // best-effort merge
+	}
+	ep, _ := sc["enabledPlugins"].(map[string]any)
+	if ep == nil {
+		ep = make(map[string]any)
+	}
+	ep[key] = true
+	sc["enabledPlugins"] = ep
+
+	ekm, _ := sc["extraKnownMarketplaces"].(map[string]any)
+	if ekm == nil {
+		ekm = make(map[string]any)
+	}
+	ekm[pluginRegistryName] = map[string]any{
+		"source": map[string]any{"source": "directory", "path": mktPath},
+	}
+	sc["extraKnownMarketplaces"] = ekm
+	if err := writeJSON(settingsFile, sc); err != nil {
+		return fmt.Errorf("write settings.json: %w", err)
+	}
+
+	return nil
+}
+
+// writeJSON 将数据写入 JSON 文件
+func writeJSON(path string, v any) error {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// installSkillTo 将 Skill 文件以普通格式安装到目标目录（Codex/OpenCode）
+// Codex/OpenCode 没有 commands/ 机制，init.md 作为 references 供自动加载
 func (a *App) installSkillTo(skillDir string) error {
 	refsDir := filepath.Join(skillDir, "references")
 	if err := os.MkdirAll(refsDir, 0755); err != nil {
 		return fmt.Errorf("create directory failed: %w", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(a.skillMDWithDataDir()), 0644); err != nil {
-		return fmt.Errorf("write SKILL.md failed: %w", err)
+	files := map[string]string{
+		filepath.Join(skillDir, "SKILL.md"):   a.skillMDWithDataDir(),
+		filepath.Join(refsDir, "commands.md"): a.skillContent.CommandsMD,
+		filepath.Join(refsDir, "init.md"):     a.skillContent.InitMD,
 	}
-	if err := os.WriteFile(filepath.Join(refsDir, "commands.md"), []byte(a.skillContent.CommandsMD), 0644); err != nil {
-		return fmt.Errorf("write commands.md failed: %w", err)
+	for path, content := range files {
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			return fmt.Errorf("write %s failed: %w", filepath.Base(path), err)
+		}
 	}
-	if err := os.WriteFile(filepath.Join(refsDir, "ops-init.md"), []byte(a.skillContent.OpsInitMD), 0644); err != nil {
-		return fmt.Errorf("write ops-init.md failed: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(skillDir, "init.md"), []byte(a.skillContent.InitMD), 0644); err != nil {
-		return fmt.Errorf("write init.md failed: %w", err)
-	}
+
 	return nil
+}
+
+// installGeminiExtension 将 Skill 以 Gemini CLI 扩展格式安装
+// extDir = ~/.gemini/extensions/opsctl/
+func (a *App) installGeminiExtension(extDir string) error {
+	dirs := []string{
+		filepath.Join(extDir, "skills", "opsctl", "references"),
+	}
+	for _, d := range dirs {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			return fmt.Errorf("create directory %s failed: %w", d, err)
+		}
+	}
+
+	// 扩展清单（version 为必填字段）
+	manifest := `{"name":"opsctl","version":"` + pluginVersion + `"}` + "\n"
+
+	files := map[string]string{
+		filepath.Join(extDir, "gemini-extension.json"):                         manifest,
+		filepath.Join(extDir, "GEMINI.md"):                                     "See the opsctl skill in skills/opsctl/ for asset management instructions.\n",
+		filepath.Join(extDir, "skills", "opsctl", "SKILL.md"):                  a.skillMDWithDataDir(),
+		filepath.Join(extDir, "skills", "opsctl", "references", "commands.md"): a.skillContent.CommandsMD,
+		filepath.Join(extDir, "skills", "opsctl", "references", "init.md"):     a.skillContent.InitMD,
+	}
+	for path, content := range files {
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			return fmt.Errorf("write %s failed: %w", filepath.Base(path), err)
+		}
+	}
+
+	return nil
+}
+
+// installTarget 根据安装类型分发到对应安装方法
+func (a *App) installTarget(def struct {
+	Name     string
+	Type     skillInstallType
+	SkillFn  func(home string) string
+	DetectFn func(path string) bool
+}, home string) error {
+	path := def.SkillFn(home)
+	switch def.Type {
+	case installClaude:
+		return a.installPluginTo(path, home)
+	case installSkill:
+		return a.installSkillTo(path)
+	case installGemini:
+		return a.installGeminiExtension(path)
+	default:
+		return fmt.Errorf("unknown install type: %d", def.Type)
+	}
 }
 
 // InstallSkills 安装 Skill 文件到所有支持的 AI 工具
@@ -599,27 +875,81 @@ func (a *App) InstallSkills() error {
 	}
 
 	for _, def := range skillTargetDefs {
-		skillDir := filepath.Join(home, def.SubDir, "skills", "opsctl")
-		if err := a.installSkillTo(skillDir); err != nil {
-			return fmt.Errorf("install %s skill failed: %w", def.Name, err)
+		if err := a.installTarget(def, home); err != nil {
+			return fmt.Errorf("install %s failed: %w", def.Name, err)
 		}
 	}
 
-	// 清理旧的 skill 文件
-	oldSkillPath := filepath.Join(home, ".claude", "commands", "opskat.md")
-	if err := os.Remove(oldSkillPath); err != nil && !os.IsNotExist(err) {
-		logger.Default().Warn("remove old skill file", zap.String("path", oldSkillPath), zap.Error(err))
+	// 在应用数据目录写一份各工具的插件结构，方便用户手动拷贝
+	if err := a.writePluginReference(); err != nil {
+		logger.Default().Warn("write plugin reference failed", zap.Error(err))
 	}
 
 	return nil
 }
 
+// GetPluginReferenceDir 返回应用数据目录下的插件参考目录
+func (a *App) GetPluginReferenceDir() string {
+	return filepath.Join(bootstrap.AppDataDir(), "plugins")
+}
+
+// writePluginReference 在数据目录写各工具的插件目录结构
+func (a *App) writePluginReference() error {
+	base := a.GetPluginReferenceDir()
+	skillMD := a.skillMDWithDataDir()
+
+	structures := []struct {
+		files map[string]string
+	}{
+		// Claude Code
+		{files: map[string]string{
+			filepath.Join(base, "claude-code", ".claude-plugin", "marketplace.json"):                      a.skillContent.MarketplaceJSON,
+			filepath.Join(base, "claude-code", "opsctl", ".claude-plugin", "plugin.json"):                 a.skillContent.PluginJSON,
+			filepath.Join(base, "claude-code", "opsctl", ".claude-plugin", "marketplace.json"):            a.skillContent.PluginMarketplaceJSON,
+			filepath.Join(base, "claude-code", "opsctl", "skills", "opsctl", "SKILL.md"):                  skillMD,
+			filepath.Join(base, "claude-code", "opsctl", "skills", "opsctl", "references", "commands.md"): a.skillContent.CommandsMD,
+			filepath.Join(base, "claude-code", "opsctl", "commands", "init.md"):                           a.skillContent.InitMD,
+		}},
+		// Codex
+		{files: map[string]string{
+			filepath.Join(base, "codex", "opsctl", "SKILL.md"):                  skillMD,
+			filepath.Join(base, "codex", "opsctl", "references", "commands.md"): a.skillContent.CommandsMD,
+			filepath.Join(base, "codex", "opsctl", "references", "init.md"):     a.skillContent.InitMD,
+		}},
+		// OpenCode
+		{files: map[string]string{
+			filepath.Join(base, "opencode", "opsctl", "SKILL.md"):                  skillMD,
+			filepath.Join(base, "opencode", "opsctl", "references", "commands.md"): a.skillContent.CommandsMD,
+			filepath.Join(base, "opencode", "opsctl", "references", "init.md"):     a.skillContent.InitMD,
+		}},
+		// Gemini CLI
+		{files: map[string]string{
+			filepath.Join(base, "gemini", "opsctl", "gemini-extension.json"):                         `{"name":"opsctl","version":"` + pluginVersion + `"}` + "\n",
+			filepath.Join(base, "gemini", "opsctl", "GEMINI.md"):                                     "See the opsctl skill in skills/opsctl/ for asset management instructions.\n",
+			filepath.Join(base, "gemini", "opsctl", "skills", "opsctl", "SKILL.md"):                  skillMD,
+			filepath.Join(base, "gemini", "opsctl", "skills", "opsctl", "references", "commands.md"): a.skillContent.CommandsMD,
+			filepath.Join(base, "gemini", "opsctl", "skills", "opsctl", "references", "init.md"):     a.skillContent.InitMD,
+		}},
+	}
+
+	for _, s := range structures {
+		for p, content := range s.files {
+			if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // GetSkillPreview 获取 Skill 文件内容预览
 func (a *App) GetSkillPreview() string {
-	return "--- SKILL.md ---\n\n" + a.skillMDWithDataDir() +
-		"\n\n--- init.md ---\n\n" + a.skillContent.InitMD +
-		"\n\n--- references/commands.md ---\n\n" + a.skillContent.CommandsMD +
-		"\n\n--- references/ops-init.md ---\n\n" + a.skillContent.OpsInitMD
+	return "--- skills/opsctl/SKILL.md ---\n\n" + a.skillMDWithDataDir() +
+		"\n\n--- commands/init.md ---\n\n" + a.skillContent.InitMD +
+		"\n\n--- skills/opsctl/references/commands.md ---\n\n" + a.skillContent.CommandsMD
 }
 
 // --- 审计日志 ---
@@ -691,7 +1021,11 @@ func (a *App) startAutoUpdateCheck() {
 
 // GetAppVersion 返回当前应用版本
 func (a *App) GetAppVersion() string {
-	return configs.Version
+	v := configs.Version
+	if c := buildinfo.ShortCommitID(); c != "" {
+		v += " (" + c + ")"
+	}
+	return v
 }
 
 // GetUpdateChannel 获取当前更新通道
@@ -738,13 +1072,15 @@ func (a *App) DownloadAndInstallUpdate() error {
 		}
 	}
 
-	// 更新后重新安装 Skills（如果已安装）
+	// 更新后重新安装 Skills/Plugin（如果已安装）
+	home, _ := os.UserHomeDir()
 	skills := a.DetectSkills()
-	for _, s := range skills {
-		if s.Installed {
-			if err := a.installSkillTo(s.Path); err != nil {
-				wailsRuntime.EventsEmit(a.ctx, "update:skill-error", err.Error())
-			}
+	for i, s := range skills {
+		if !s.Installed {
+			continue
+		}
+		if installErr := a.installTarget(skillTargetDefs[i], home); installErr != nil {
+			wailsRuntime.EventsEmit(a.ctx, "update:skill-error", installErr.Error())
 		}
 	}
 

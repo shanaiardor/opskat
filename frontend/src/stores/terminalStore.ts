@@ -289,7 +289,7 @@ interface TerminalState {
   connectingAssetIds: Set<number>;
   connections: Record<string, ConnectionState>;
 
-  connect: (asset: asset_entity.Asset, password?: string) => Promise<string>;
+  connect: (asset: asset_entity.Asset, password?: string, forceNew?: boolean) => Promise<string>;
   reconnect: (tabId: string) => void;
   disconnect: (sessionId: string) => void;
   markClosed: (sessionId: string) => void;
@@ -312,7 +312,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   connectingAssetIds: new Set(),
   connections: {},
 
-  connect: async (asset, password = "") => {
+  connect: async (asset, password = "", forceNew = false) => {
     const assetId = asset.ID;
     const assetPath = useAssetStore.getState().getAssetPath(asset);
     const assetIcon = asset.Icon || "";
@@ -326,23 +326,17 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
     const tabStore = useTabStore.getState();
 
-    // If there's already a connecting/error tab for this asset, switch to it
-    const existingTab = tabStore.tabs.find((t) => {
-      if (t.type !== "terminal") return false;
-      const m = t.meta as TerminalTabMeta;
-      if (m.assetId !== assetId) return false;
-      const conn = get().connections[t.id];
-      return (
-        conn &&
-        (conn.status === "connecting" ||
-          conn.status === "error" ||
-          conn.status === "auth_challenge" ||
-          conn.status === "host_key_verify")
-      );
-    });
-    if (existingTab) {
-      tabStore.activateTab(existingTab.id);
-      return existingTab.id;
+    // If there's already a tab for this asset (connected or connecting), switch to it
+    if (!forceNew) {
+      const existingTab = tabStore.tabs.find((t) => {
+        if (t.type !== "terminal") return false;
+        const m = t.meta as TerminalTabMeta;
+        return m.assetId === assetId;
+      });
+      if (existingTab) {
+        tabStore.activateTab(existingTab.id);
+        return existingTab.id;
+      }
     }
 
     set((state) => ({

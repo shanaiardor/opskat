@@ -6,10 +6,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { useTheme } from "@/components/theme-provider";
+import { useTheme, useResolvedTheme } from "@/components/theme-provider";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { useTerminalThemeStore } from "@/stores/terminalThemeStore";
-import { builtinThemes, TerminalTheme } from "@/data/terminalThemes";
+import { builtinThemes, defaultLightTheme, TerminalTheme } from "@/data/terminalThemes";
 import { TerminalThemeEditor } from "@/components/settings/TerminalThemeEditor";
 import { cn } from "@/lib/utils";
 
@@ -92,6 +92,7 @@ export function TerminalSection() {
     updateCustomTheme,
     removeCustomTheme,
   } = useTerminalThemeStore();
+  const resolvedTheme = useResolvedTheme();
   const [themeEditorOpen, setThemeEditorOpen] = useState(false);
   const [editingTheme, setEditingTheme] = useState<TerminalTheme | undefined>(undefined);
 
@@ -124,7 +125,7 @@ export function TerminalSection() {
           <div className="space-y-2">
             <Label>{t("terminal.builtinThemes")}</Label>
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-              {/* Default (no theme) */}
+              {/* Default (follows app theme) */}
               <button
                 onClick={() => setSelectedThemeId("default")}
                 className={cn(
@@ -132,9 +133,27 @@ export function TerminalSection() {
                   selectedThemeId === "default" && "ring-2 ring-primary"
                 )}
               >
-                <div className="rounded h-10 mb-1.5 flex items-center justify-center bg-black">
-                  <span className="text-white text-xs font-mono">&gt;_</span>
-                </div>
+                {resolvedTheme === "dark" ? (
+                  <div className="rounded h-10 mb-1.5 flex items-center justify-center bg-black">
+                    <span className="text-white text-xs font-mono">&gt;_</span>
+                  </div>
+                ) : (
+                  <div
+                    className="rounded h-10 mb-1.5 flex items-end p-1 gap-0.5"
+                    style={{ background: defaultLightTheme.background }}
+                  >
+                    {[
+                      defaultLightTheme.red,
+                      defaultLightTheme.green,
+                      defaultLightTheme.yellow,
+                      defaultLightTheme.blue,
+                      defaultLightTheme.magenta,
+                      defaultLightTheme.cyan,
+                    ].map((c, i) => (
+                      <div key={i} className="w-2 h-3 rounded-sm" style={{ background: c }} />
+                    ))}
+                  </div>
+                )}
                 <div className="text-xs truncate font-medium">{t("terminal.default")}</div>
               </button>
               {builtinThemes.map((bt) => (
@@ -147,10 +166,7 @@ export function TerminalSection() {
                   )}
                 >
                   {/* Color preview */}
-                  <div
-                    className="rounded h-10 mb-1.5 flex items-end p-1 gap-0.5"
-                    style={{ background: bt.background }}
-                  >
+                  <div className="rounded h-10 mb-1.5 flex items-end p-1 gap-0.5" style={{ background: bt.background }}>
                     {[bt.red, bt.green, bt.yellow, bt.blue, bt.magenta, bt.cyan].map((c, i) => (
                       <div key={i} className="w-2 h-3 rounded-sm" style={{ background: c }} />
                     ))}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/opskat/opskat/internal/app"
 	"github.com/opskat/opskat/internal/bootstrap"
+	skillplugin "github.com/opskat/opskat/plugin"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/wailsapp/wails/v2"
@@ -19,18 +20,6 @@ import (
 
 //go:embed all:frontend/dist
 var assets embed.FS
-
-//go:embed skill/SKILL.md
-var skillMDContent string
-
-//go:embed skill/references/commands.md
-var skillCommandsMDContent string
-
-//go:embed skill/references/ops-init.md
-var skillOpsInitMDContent string
-
-//go:embed skill/init.md
-var skillInitMDContent string
 
 func main() {
 	ctx := context.Background()
@@ -60,10 +49,12 @@ func main() {
 
 	// 创建 Wails App
 	a := app.NewApp(app.SkillContent{
-		SkillMD:    skillMDContent,
-		CommandsMD: skillCommandsMDContent,
-		OpsInitMD:  skillOpsInitMDContent,
-		InitMD:     skillInitMDContent,
+		SkillMD:               skillplugin.SkillMD,
+		CommandsMD:            skillplugin.CommandsMD,
+		InitMD:                skillplugin.InitMD,
+		PluginJSON:            skillplugin.PluginJSON,
+		MarketplaceJSON:       skillplugin.MarketplaceJSON,
+		PluginMarketplaceJSON: skillplugin.PluginMarketplaceJSON,
 	})
 
 	err = wails.Run(&options.App{

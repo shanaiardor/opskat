@@ -142,6 +142,7 @@ function ContextMenuContent({ className, style: styleProp, children, ...props }:
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKey);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.open, ctx.onOpenChange]);
 
   if (!ctx.open) return null;

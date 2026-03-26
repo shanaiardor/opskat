@@ -68,6 +68,7 @@ export function TerminalThemeEditor({ open, onOpenChange, theme, onSave }: Termi
   const [colors, setColors] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
     if (open) {
       if (theme) {
         setName(theme.name);
@@ -85,6 +86,7 @@ export function TerminalThemeEditor({ open, onOpenChange, theme, onSave }: Termi
         setColors(c);
       }
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [open, theme]);
 
   const handleColorChange = (key: string, value: string) => {

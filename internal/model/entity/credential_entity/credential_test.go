@@ -45,8 +45,8 @@ func TestValidate(t *testing.T) {
 		Convey("SSH 密钥类型", func() {
 			Convey("私钥为空时返回错误", func() {
 				c := &Credential{
-					Name:      "test",
-					Type:      TypeSSHKey,
+					Name:       "test",
+					Type:       TypeSSHKey,
 					PrivateKey: "",
 					PublicKey:  "pubkey",
 					KeyType:    KeyTypeED25519,
@@ -58,8 +58,8 @@ func TestValidate(t *testing.T) {
 
 			Convey("公钥为空时返回错误", func() {
 				c := &Credential{
-					Name:      "test",
-					Type:      TypeSSHKey,
+					Name:       "test",
+					Type:       TypeSSHKey,
 					PrivateKey: "privkey",
 					PublicKey:  "",
 					KeyType:    KeyTypeED25519,
@@ -71,8 +71,8 @@ func TestValidate(t *testing.T) {
 
 			Convey("不支持的密钥类型返回错误", func() {
 				c := &Credential{
-					Name:      "test",
-					Type:      TypeSSHKey,
+					Name:       "test",
+					Type:       TypeSSHKey,
 					PrivateKey: "privkey",
 					PublicKey:  "pubkey",
 					KeyType:    "dsa",
@@ -84,8 +84,8 @@ func TestValidate(t *testing.T) {
 
 			Convey("ed25519 密钥类型校验通过", func() {
 				c := &Credential{
-					Name:      "test",
-					Type:      TypeSSHKey,
+					Name:       "test",
+					Type:       TypeSSHKey,
 					PrivateKey: "privkey",
 					PublicKey:  "pubkey",
 					KeyType:    KeyTypeED25519,
@@ -96,8 +96,8 @@ func TestValidate(t *testing.T) {
 
 			Convey("ecdsa 密钥类型校验通过", func() {
 				c := &Credential{
-					Name:      "test",
-					Type:      TypeSSHKey,
+					Name:       "test",
+					Type:       TypeSSHKey,
 					PrivateKey: "privkey",
 					PublicKey:  "pubkey",
 					KeyType:    KeyTypeECDSA,
@@ -108,8 +108,8 @@ func TestValidate(t *testing.T) {
 
 			Convey("rsa 密钥类型校验通过", func() {
 				c := &Credential{
-					Name:      "test",
-					Type:      TypeSSHKey,
+					Name:       "test",
+					Type:       TypeSSHKey,
 					PrivateKey: "privkey",
 					PublicKey:  "pubkey",
 					KeyType:    KeyTypeRSA,

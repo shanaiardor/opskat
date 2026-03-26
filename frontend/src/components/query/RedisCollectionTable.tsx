@@ -217,6 +217,7 @@ export function RedisCollectionTable({
   const db = state?.currentDb ?? 0;
   const [deleteTarget, setDeleteTarget] = useState<{ label: string; action: () => void } | null>(null);
 
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: itemCount,
     getScrollElement: () => scrollRef.current,

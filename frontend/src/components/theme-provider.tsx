@@ -66,8 +66,30 @@ export function ThemeProvider({
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useTheme = () => {
   const context = useContext(ThemeProviderContext);
   if (context === undefined) throw new Error("useTheme must be used within a ThemeProvider");
   return context;
 };
+
+/** 返回当前生效的主题（"dark" | "light"），跟随系统和用户设置实时变化 */
+// eslint-disable-next-line react-refresh/only-export-components
+export function useResolvedTheme(): "dark" | "light" {
+  const [resolved, setResolved] = useState<"dark" | "light">(() =>
+    document.documentElement.classList.contains("dark") ? "dark" : "light"
+  );
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setResolved(document.documentElement.classList.contains("dark") ? "dark" : "light");
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
+  }, []);
+
+  return resolved;
+}

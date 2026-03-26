@@ -32,6 +32,7 @@ export function RedisKeyBrowser({ tabId }: RedisKeyBrowserProps) {
   const ctxMenuRef = useRef<HTMLDivElement>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: state?.keys.length ?? 0,
     getScrollElement: () => scrollRef.current,

@@ -1,0 +1,14 @@
+{
+  "name": "opskat",
+  "owner": {
+    "name": "opskat"
+  },
+  "plugins": [
+    {
+      "name": "opsctl",
+      "source": "./",
+      "description": "opskat CLI tool (opsctl) for server asset management and remote operations",
+      "version": "1.0.0"
+    }
+  ]
+}

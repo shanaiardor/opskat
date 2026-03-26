@@ -60,6 +60,7 @@ interface AssetTreeProps {
   onEditAsset: (asset: asset_entity.Asset) => void;
   onCopyAsset: (asset: asset_entity.Asset) => void;
   onConnectAsset: (asset: asset_entity.Asset) => void;
+  onConnectAssetInNewTab?: (asset: asset_entity.Asset) => void;
   onSelectAsset: (asset: asset_entity.Asset) => void;
   onOpenInfoTab?: (type: "asset" | "group", id: number, name: string, icon?: string) => void;
 }
@@ -75,6 +76,7 @@ export function AssetTree({
   onEditAsset,
   onCopyAsset,
   onConnectAsset,
+  onConnectAssetInNewTab,
   onSelectAsset,
   onOpenInfoTab,
 }: AssetTreeProps) {
@@ -231,6 +233,7 @@ export function AssetTree({
                   onEditAsset={onEditAsset}
                   onCopyAsset={onCopyAsset}
                   onConnectAsset={onConnectAsset}
+                  onConnectAssetInNewTab={onConnectAssetInNewTab}
                   onEditGroup={onEditGroup}
                   onGroupDetail={onGroupDetail}
                   onDeleteGroup={handleDeleteGroup}
@@ -262,6 +265,7 @@ export function AssetTree({
                   onEditAsset={onEditAsset}
                   onCopyAsset={onCopyAsset}
                   onConnectAsset={onConnectAsset}
+                  onConnectAssetInNewTab={onConnectAssetInNewTab}
                   onEditGroup={onEditGroup}
                   onGroupDetail={onGroupDetail}
                   onDeleteGroup={handleDeleteGroup}
@@ -345,6 +349,7 @@ function GroupItem({
   onEditAsset,
   onCopyAsset,
   onConnectAsset,
+  onConnectAssetInNewTab,
   onEditGroup,
   onGroupDetail,
   onDeleteGroup,
@@ -368,6 +373,7 @@ function GroupItem({
   onEditAsset: (asset: asset_entity.Asset) => void;
   onCopyAsset: (asset: asset_entity.Asset) => void;
   onConnectAsset: (asset: asset_entity.Asset) => void;
+  onConnectAssetInNewTab?: (asset: asset_entity.Asset) => void;
   onEditGroup: (group: group_entity.Group) => void;
   onGroupDetail: (group: group_entity.Group) => void;
   onDeleteGroup: (id: number) => void;
@@ -470,6 +476,7 @@ function GroupItem({
               onEditAsset={onEditAsset}
               onCopyAsset={onCopyAsset}
               onConnectAsset={onConnectAsset}
+              onConnectAssetInNewTab={onConnectAssetInNewTab}
               onEditGroup={onEditGroup}
               onGroupDetail={onGroupDetail}
               onDeleteGroup={onDeleteGroup}
@@ -506,9 +513,9 @@ function GroupItem({
                         clearTimeout(clickTimerRef.current);
                         clickTimerRef.current = null;
                       }
+                      onSelectAsset(asset);
                       if (asset.Type === "ssh" && !isConnecting) onConnectAsset(asset);
                       else if (asset.Type === "database" || asset.Type === "redis") onConnectAsset(asset);
-                      else onSelectAsset(asset);
                     }}
                   >
                     {isConnecting ? (
@@ -524,7 +531,7 @@ function GroupItem({
                   </div>
                 </ContextMenuTrigger>
                 <ContextMenuContent>
-                  {asset.Type === "ssh" && (
+                  {(asset.Type === "ssh" || asset.Type === "database" || asset.Type === "redis") && (
                     <ContextMenuItem onClick={() => onConnectAsset(asset)} disabled={isConnecting}>
                       {isConnecting ? (
                         <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
@@ -534,9 +541,15 @@ function GroupItem({
                       {t("asset.connect")}
                     </ContextMenuItem>
                   )}
+                  {asset.Type === "ssh" && onConnectAssetInNewTab && (
+                    <ContextMenuItem onClick={() => onConnectAssetInNewTab(asset)} disabled={isConnecting}>
+                      <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                      {t("asset.connectInNewTab")}
+                    </ContextMenuItem>
+                  )}
                   {onOpenInfoTab && (
                     <ContextMenuItem onClick={() => onOpenInfoTab("asset", asset.ID, asset.Name, asset.Icon)}>
-                      <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                      <Eye className="h-3.5 w-3.5 mr-1.5" />
                       {t("action.openInTab")}
                     </ContextMenuItem>
                   )}

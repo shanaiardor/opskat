@@ -22,12 +22,14 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// SkillContent 内嵌的 skill 文件内容（由 main.go 通过 go:embed 注入）
+// SkillContent 内嵌的 skill/plugin 文件内容（由 main.go 通过 go:embed 注入）
 type SkillContent struct {
-	SkillMD    string
-	CommandsMD string
-	OpsInitMD  string
-	InitMD     string
+	SkillMD               string
+	CommandsMD            string
+	InitMD                string
+	PluginJSON            string
+	MarketplaceJSON       string
+	PluginMarketplaceJSON string // 插件内嵌的 marketplace.json（自引用，用于插件缓存目录）
 }
 
 // ConfirmResponse 命令确认响应

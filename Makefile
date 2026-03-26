@@ -10,8 +10,10 @@ else
 endif
 
 VERSION ?= 1.0.0
+COMMIT_ID := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 VERSION_PKG := github.com/cago-frame/cago/configs
-LDFLAGS := -s -w -X $(VERSION_PKG).Version=$(VERSION)
+BUILDINFO_PKG := github.com/opskat/opskat/internal/buildinfo
+LDFLAGS := -s -w -X $(VERSION_PKG).Version=$(VERSION) -X $(BUILDINFO_PKG).CommitID=$(COMMIT_ID)
 
 # 开发模式（前后端热重载）
 dev:
@@ -64,12 +66,42 @@ test-cover:
 	@echo "覆盖率报告已生成: coverage.html"
 	@open coverage.html 2>/dev/null || xdg-open coverage.html 2>/dev/null || echo "请手动打开 coverage.html"
 
-# 安装 Claude Code skill（创建 symlink 到 ~/.claude/skills/opsctl）
+# 安装 Claude Code plugin（创建 symlink，注册 marketplace + plugin）
 install-skill:
-	@mkdir -p ~/.claude/skills
-	@rm -f ~/.claude/skills/opsctl
-	@ln -s $(CURDIR)/skill ~/.claude/skills/opsctl
-	@echo "Skill installed: ~/.claude/skills/opsctl -> $(CURDIR)/skill"
+	@# 清理旧路径
+	@rm -rf ~/.claude/skills/opsctl ~/.claude/plugins/cache/opskat
+	@# Marketplace symlink → 市场根目录（含 .claude-plugin/marketplace.json + opsctl/ 插件目录）
+	@rm -rf ~/.claude/plugins/marketplaces/opskat
+	@mkdir -p ~/.claude/plugins/marketplaces
+	@ln -s $(CURDIR)/plugin ~/.claude/plugins/marketplaces/opskat
+	@# 注册到 installed_plugins.json + known_marketplaces.json + settings.json
+	@python3 -c "\
+	import json, os, datetime; \
+	home = os.path.expanduser('~'); \
+	now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z'); \
+	plugin_path = os.path.join(home, '.claude/plugins/marketplaces/opskat/opsctl'); \
+	mkt_path = os.path.join(home, '.claude/plugins/marketplaces/opskat'); \
+	key = 'opsctl@opskat'; \
+	pf = os.path.join(home, '.claude/plugins/installed_plugins.json'); \
+	cfg = json.load(open(pf)) if os.path.exists(pf) else {'version': 2, 'plugins': {}}; \
+	entries = cfg['plugins'].get(key, []); \
+	ue = [e for e in entries if e.get('scope') == 'user']; \
+	(ue[0].update({'installPath': plugin_path, 'version': 'dev', 'lastUpdated': now}) if ue else \
+	 entries.append({'scope': 'user', 'installPath': plugin_path, 'version': 'dev', 'installedAt': now, 'lastUpdated': now})); \
+	cfg['plugins'].pop('opsctl@local', None); \
+	cfg['plugins'][key] = entries; \
+	json.dump(cfg, open(pf, 'w'), indent=2, ensure_ascii=False); \
+	kf = os.path.join(home, '.claude/plugins/known_marketplaces.json'); \
+	km = json.load(open(kf)) if os.path.exists(kf) else {}; \
+	km['opskat'] = {'source': {'source': 'directory', 'path': mkt_path}, 'installLocation': mkt_path, 'lastUpdated': now}; \
+	json.dump(km, open(kf, 'w'), indent=2, ensure_ascii=False); \
+	sf = os.path.join(home, '.claude/settings.json'); \
+	sc = json.load(open(sf)) if os.path.exists(sf) else {}; \
+	sc.setdefault('enabledPlugins', {})[key] = True; \
+	sc.setdefault('extraKnownMarketplaces', {})['opskat'] = {'source': {'source': 'directory', 'path': mkt_path}}; \
+	json.dump(sc, open(sf, 'w'), indent=2, ensure_ascii=False); \
+	print(f'Registered plugin: {key}')"
+	@echo "Plugin installed: marketplace -> $(CURDIR)/plugin"
 
 # 清理构建产物
 clean:

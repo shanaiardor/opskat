@@ -1,3 +1,7 @@
+---
+description: "Asset environment discovery via SSH — auto-scan server and generate structured description"
+---
+
 # opsctl init — Asset Environment Discovery
 
 Discover server environment via SSH, generate a structured description, and persist it to the asset's `description` field.
@@ -25,7 +29,7 @@ echo '=== HOSTNAME ===' && hostname;
 echo '=== CPU ===' && nproc;
 echo '=== MEMORY ===' && free -h;
 echo '=== DISK ===' && df -h;
-echo '=== NETWORK ===' && ip -4 addr show 2>/dev/null | grep inet;
+echo '=== NETWORK ===' && (ip -4 addr show 2>/dev/null || ifconfig 2>/dev/null) | grep inet;
 echo '=== PROCESS ===' && ps aux --sort=-%mem 2>/dev/null | head -30;
 echo '=== LISTENERS ===' && ss -tlnp 2>/dev/null | head -25;
 echo '=== CONTAINERS ===' && docker ps --format '{{.Names}}: {{.Image}}' 2>/dev/null || podman ps --format '{{.Names}}: {{.Image}}' 2>/dev/null;
@@ -55,21 +59,24 @@ Phase 2 is not a fixed script — use judgment based on what Phase 1 reveals.
 
 ## Description Format
 
+The asset description field supports **Markdown rendering** in the UI. Use markdown formatting (bold, lists, code blocks, etc.) where it improves readability.
+
 ```
-[OS] Ubuntu 22.04 LTS (kernel 5.15.x)
-[Hardware] 4C/8G/100G SSD
-[Network] 10.0.1.5 (private), 203.0.113.1 (public)
-[Kubernetes] Worker node (v1.28.2), 3-node cluster, 45 pods
-[Containers] Docker 24.0.5, 12 running
-[Services] nginx 1.24, PostgreSQL 15, Redis 7.0
-[Runtime] Python 3.11, Node.js 18
-[Purpose] K8s worker node running web application stack
+**[OS]** Ubuntu 22.04 LTS (kernel 5.15.x)
+**[Hardware]** 4C/8G/100G SSD
+**[Network]** 10.0.1.5 (private), 203.0.113.1 (public)
+**[Kubernetes]** Worker node (v1.28.2), 3-node cluster, 45 pods
+**[Containers]** Docker 24.0.5, 12 running
+**[Services]** nginx 1.24, PostgreSQL 15, Redis 7.0
+**[Runtime]** Python 3.11, Node.js 18
+**[Purpose]** K8s worker node running web application stack
 ```
 
 Rules:
 - Only include tags that have actual data — omit empty ones
 - `[Purpose]` is inferred from the combination of all collected info
 - Keep each line concise — version numbers and counts, not raw output
+- Use markdown bold for tag names to improve visual hierarchy
 
 ## Handling Existing Descriptions
 

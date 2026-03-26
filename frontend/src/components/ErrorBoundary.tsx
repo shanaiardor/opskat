@@ -35,20 +35,14 @@ class ErrorBoundaryInner extends Component<Props, State> {
       return (
         <div className="flex h-screen w-screen items-center justify-center bg-background">
           <div className="flex flex-col items-center gap-4 text-center px-6">
-            <h1 className="text-xl font-semibold text-foreground">
-              {t("error.boundary.title")}
-            </h1>
-            <p className="text-sm text-muted-foreground max-w-md">
-              {t("error.boundary.message")}
-            </p>
+            <h1 className="text-xl font-semibold text-foreground">{t("error.boundary.title")}</h1>
+            <p className="text-sm text-muted-foreground max-w-md">{t("error.boundary.message")}</p>
             {this.state.error && (
               <pre className="text-xs text-destructive bg-muted rounded-md p-3 max-w-lg overflow-auto max-h-32">
                 {this.state.error.message}
               </pre>
             )}
-            <Button onClick={this.handleReload}>
-              {t("error.boundary.reload")}
-            </Button>
+            <Button onClick={this.handleReload}>{t("error.boundary.reload")}</Button>
           </div>
         </div>
       );

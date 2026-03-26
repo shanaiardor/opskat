@@ -14,6 +14,7 @@ import { GroupDialog } from "@/components/asset/GroupDialog";
 import { PermissionDialog } from "@/components/ai/PermissionDialog";
 import { OpsctlApprovalDialog } from "@/components/approval/OpsctlApprovalDialog";
 import { GrantApprovalDialog } from "@/components/approval/GrantApprovalDialog";
+import { BatchApprovalDialog } from "@/components/approval/BatchApprovalDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 import { useAssetStore } from "@/stores/assetStore";
@@ -228,6 +229,15 @@ function App() {
     }
   };
 
+  const handleConnectAssetInNewTab = async (asset: asset_entity.Asset) => {
+    if (asset.Type !== "ssh") return;
+    try {
+      await connect(asset, "", true);
+    } catch (e) {
+      toast.error(`${asset.Name}: ${String(e)}`);
+    }
+  };
+
   // Sidebar page navigation
   const handlePageChange = useCallback((page: string) => {
     const tabStore = useTabStore.getState();
@@ -268,81 +278,83 @@ function App() {
   return (
     <ThemeProvider defaultTheme="system">
       <ErrorBoundary>
-      <TooltipProvider>
-        <div className="flex h-screen w-screen overflow-hidden bg-background">
-          <WindowControls />
-          {!sidebarHidden && (
-            <Sidebar
-              activePage={activePage}
-              onPageChange={handlePageChange}
-              sidebarCollapsed={assetTreeCollapsed}
-              onToggleSidebar={toggleSidebar}
-              onHideSidebar={toggleSidebarHidden}
-              aiPanelCollapsed={aiPanelCollapsed}
-              onToggleAIPanel={toggleAIPanel}
-            />
-          )}
-          <div
-            className="relative overflow-hidden shrink-0 transition-[width] duration-200"
-            style={{ width: assetTreeCollapsed ? 0 : assetTreeWidth }}
-          >
-            <AssetTree
-              collapsed={false}
-              sidebarHidden={sidebarHidden}
-              onShowSidebar={toggleSidebarHidden}
-              onAddAsset={handleAddAsset}
-              onAddGroup={() => {
-                setEditingGroup(null);
-                setGroupDialogOpen(true);
-              }}
-              onEditGroup={(group) => {
-                setEditingGroup(group);
-                setGroupDialogOpen(true);
-              }}
-              onGroupDetail={(group) => {
-                selectGroup(group.ID);
-                selectAsset(null);
-                handleOpenInfoTab("group", group.ID, group.Name, group.Icon || undefined);
-              }}
-              onEditAsset={handleEditAsset}
-              onCopyAsset={handleCopyAsset}
-              onConnectAsset={handleConnectAsset}
-              onSelectAsset={handleSelectAsset}
-              onOpenInfoTab={handleOpenInfoTab}
-            />
-            {/* Resize handle */}
-            {!assetTreeCollapsed && (
-              <div
-                className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize z-10 hover:bg-primary/20 active:bg-primary/30 transition-colors"
-                onMouseDown={handleAssetTreeResizeStart}
+        <TooltipProvider>
+          <div className="flex h-screen w-screen overflow-hidden bg-background">
+            <WindowControls />
+            {!sidebarHidden && (
+              <Sidebar
+                activePage={activePage}
+                onPageChange={handlePageChange}
+                sidebarCollapsed={assetTreeCollapsed}
+                onToggleSidebar={toggleSidebar}
+                onHideSidebar={toggleSidebarHidden}
+                aiPanelCollapsed={aiPanelCollapsed}
+                onToggleAIPanel={toggleAIPanel}
               />
             )}
+            <div
+              className="relative overflow-hidden shrink-0 transition-[width] duration-200"
+              style={{ width: assetTreeCollapsed ? 0 : assetTreeWidth }}
+            >
+              <AssetTree
+                collapsed={false}
+                sidebarHidden={sidebarHidden}
+                onShowSidebar={toggleSidebarHidden}
+                onAddAsset={handleAddAsset}
+                onAddGroup={() => {
+                  setEditingGroup(null);
+                  setGroupDialogOpen(true);
+                }}
+                onEditGroup={(group) => {
+                  setEditingGroup(group);
+                  setGroupDialogOpen(true);
+                }}
+                onGroupDetail={(group) => {
+                  selectGroup(group.ID);
+                  selectAsset(null);
+                  handleOpenInfoTab("group", group.ID, group.Name, group.Icon || undefined);
+                }}
+                onEditAsset={handleEditAsset}
+                onCopyAsset={handleCopyAsset}
+                onConnectAsset={handleConnectAsset}
+                onConnectAssetInNewTab={handleConnectAssetInNewTab}
+                onSelectAsset={handleSelectAsset}
+                onOpenInfoTab={handleOpenInfoTab}
+              />
+              {/* Resize handle */}
+              {!assetTreeCollapsed && (
+                <div
+                  className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize z-10 hover:bg-primary/20 active:bg-primary/30 transition-colors"
+                  onMouseDown={handleAssetTreeResizeStart}
+                />
+              )}
+            </div>
+            {assetTreeResizing && <div className="fixed inset-0 z-50 cursor-col-resize" />}
+            <MainPanel
+              onEditAsset={handleEditAsset}
+              onDeleteAsset={handleDeleteAsset}
+              onConnectAsset={handleConnectAsset}
+            />
+            <ConversationListPanel
+              collapsed={aiPanelCollapsed}
+              onToggle={() => setAiPanelCollapsed(!aiPanelCollapsed)}
+              onOpenConversation={handleOpenConversation}
+            />
           </div>
-          {assetTreeResizing && <div className="fixed inset-0 z-50 cursor-col-resize" />}
-          <MainPanel
-            onEditAsset={handleEditAsset}
-            onDeleteAsset={handleDeleteAsset}
-            onConnectAsset={handleConnectAsset}
-          />
-          <ConversationListPanel
-            collapsed={aiPanelCollapsed}
-            onToggle={() => setAiPanelCollapsed(!aiPanelCollapsed)}
-            onOpenConversation={handleOpenConversation}
-          />
-        </div>
 
-        <AssetForm
-          open={assetFormOpen}
-          onOpenChange={setAssetFormOpen}
-          editAsset={editingAsset}
-          defaultGroupId={defaultGroupId}
-        />
-        <GroupDialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen} editGroup={editingGroup} />
-        <PermissionDialog />
-        <OpsctlApprovalDialog />
-        <GrantApprovalDialog />
-        <Toaster richColors />
-      </TooltipProvider>
+          <AssetForm
+            open={assetFormOpen}
+            onOpenChange={setAssetFormOpen}
+            editAsset={editingAsset}
+            defaultGroupId={defaultGroupId}
+          />
+          <GroupDialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen} editGroup={editingGroup} />
+          <PermissionDialog />
+          <OpsctlApprovalDialog />
+          <GrantApprovalDialog />
+          <BatchApprovalDialog />
+          <Toaster richColors />
+        </TooltipProvider>
       </ErrorBoundary>
     </ThemeProvider>
   );

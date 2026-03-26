@@ -107,6 +107,8 @@ export function GetLanguage():Promise<string>;
 
 export function GetOpsctlInstallDir():Promise<string>;
 
+export function GetPluginReferenceDir():Promise<string>;
+
 export function GetSSHPoolConnections():Promise<Array<sshpool.PoolEntryInfo>>;
 
 export function GetSkillPreview():Promise<string>;
@@ -156,6 +158,8 @@ export function LoadAISetting():Promise<app.AISettingInfo>;
 export function MoveAsset(arg1:number,arg2:string):Promise<void>;
 
 export function MoveGroup(arg1:number,arg2:string):Promise<void>;
+
+export function OpenDirectory(arg1:string):Promise<void>;
 
 export function PreviewGistBackup(arg1:string,arg2:string,arg3:string):Promise<backup_svc.BackupSummary>;
 

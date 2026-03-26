@@ -18,5 +18,6 @@ export function useActiveAssetIds(): Set<number> {
     const queryIds = getQueryActiveAssetIds();
     if (queryIds.size === 0) return terminalIds;
     return new Set([...terminalIds, ...queryIds]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabData, tabs]);
 }

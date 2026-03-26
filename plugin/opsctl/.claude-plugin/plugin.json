@@ -1,0 +1,9 @@
+{
+  "name": "opsctl",
+  "description": "opskat CLI tool (opsctl) for server asset management and remote operations",
+  "version": "1.0.0",
+  "author": {
+    "name": "opskat",
+    "email": "opskat@opskat.dev"
+  }
+}

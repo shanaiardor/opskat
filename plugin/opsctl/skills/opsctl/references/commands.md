@@ -81,6 +81,47 @@ echo "data" | opsctl exec web-server -- cat
 opsctl exec web-01 -- systemctl restart nginx
 ```
 
+## batch
+
+### `batch [args...]`
+
+Execute multiple commands in parallel with a single approval request. Supports exec (SSH), sql, and redis types in a single batch.
+
+**Input modes**:
+
+1. **Stdin JSON** (AI-friendly — primary mode):
+```bash
+echo '{"commands":[
+  {"asset":"web-01","type":"exec","command":"uptime"},
+  {"asset":"db-01","type":"sql","command":"SELECT 1"},
+  {"asset":"cache","type":"redis","command":"PING"}
+]}' | opsctl batch
+```
+
+2. **Positional args**:
+```bash
+# Default type=exec
+opsctl batch 'web-01:uptime' 'db-01:hostname'
+# With type prefix (type:asset:command)
+opsctl batch 'sql:db-01:SELECT 1' 'redis:cache:PING' 'web-01:uptime'
+```
+
+**Args format**: `asset:command` (default exec) or `type:asset:command`. First `:` before a known type (`exec`/`sql`/`redis`) is the type separator.
+
+**Output**: JSON with per-command results:
+```json
+{
+  "results": [
+    {"asset_id":1,"asset_name":"web-01","type":"exec","command":"uptime","exit_code":0,"stdout":"...","stderr":""},
+    {"asset_id":2,"asset_name":"db-01","type":"sql","command":"SELECT 1","exit_code":0,"stdout":"...","error":""}
+  ]
+}
+```
+
+**Exit code**: 0 if any command succeeded, 1 if all failed.
+
+**Approval flow**: Policy pre-check per command → single batch approval dialog for all need-confirm commands → parallel execution.
+
 ## create
 
 ### `create asset [flags]`

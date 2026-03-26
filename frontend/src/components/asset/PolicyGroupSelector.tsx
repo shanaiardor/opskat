@@ -37,6 +37,7 @@ export function PolicyGroupSelector({ policyType, selectedIds, onChange, refresh
 
   useEffect(() => {
     fetchGroups();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [policyType, refreshKey]);
 
   const selectedGroups = groups.filter((g) => selectedIds.includes(g.id));

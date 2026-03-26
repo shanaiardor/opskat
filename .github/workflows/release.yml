@@ -7,6 +7,7 @@ on:
 
 env:
   VERSION: ${{ github.ref_name }}
+  COMMIT_ID: ${{ github.sha }}
 
 jobs:
   build-desktop:
@@ -49,25 +50,8 @@ jobs:
       - name: Free disk space (macOS)
         if: matrix.goos == 'darwin'
         run: |
-          echo "=== Before cleanup ==="
-          df -h /
-          # Xcode platforms not needed for codesign/notarize (~6GB+)
-          sudo rm -rf /Applications/Xcode*.app/Contents/Developer/Platforms/iPhoneOS.platform || true
-          sudo rm -rf /Applications/Xcode*.app/Contents/Developer/Platforms/iPhoneSimulator.platform || true
-          sudo rm -rf /Applications/Xcode*.app/Contents/Developer/Platforms/WatchOS.platform || true
-          sudo rm -rf /Applications/Xcode*.app/Contents/Developer/Platforms/WatchSimulator.platform || true
-          sudo rm -rf /Applications/Xcode*.app/Contents/Developer/Platforms/AppleTVOS.platform || true
-          sudo rm -rf /Applications/Xcode*.app/Contents/Developer/Platforms/AppleTVSimulator.platform || true
-          sudo rm -rf /Applications/Xcode*.app/Contents/Developer/Platforms/XROS.platform || true
-          sudo rm -rf /Applications/Xcode*.app/Contents/Developer/Platforms/XRSimulator.platform || true
-          # Android SDK (~7GB)
           rm -rf ~/Library/Android/sdk || true
-          # iOS simulators & device support (~4-7GB)
           rm -rf ~/Library/Developer/CoreSimulator || true
-          rm -rf ~/Library/Developer/Xcode/DerivedData || true
-          rm -rf ~/Library/Developer/Xcode/iOS\ DeviceSupport || true
-          echo "=== After cleanup ==="
-          df -h /
 
       - uses: actions/setup-go@v6
         with:
@@ -104,15 +88,15 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: go build -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }}" -o ./internal/embedded/opsctl_bin ./cmd/opsctl/
+        run: go build -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/opskat/opskat/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}" -o ./internal/embedded/opsctl_bin ./cmd/opsctl/
 
       - name: Build desktop app
         if: matrix.goos != 'windows'
-        run: wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }}" -tags "embed_opsctl${{ matrix.extra_tags }}"
+        run: wails build -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/opskat/opskat/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}" -tags "embed_opsctl${{ matrix.extra_tags }}"
 
       - name: Build desktop app (Windows)
         if: matrix.goos == 'windows'
-        run: wails build -nsis -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }}" -tags embed_opsctl
+        run: wails build -nsis -platform ${{ matrix.goos }}/${{ matrix.goarch }} -ldflags="-s -w -X github.com/cago-frame/cago/configs.Version=${{ env.VERSION }} -X github.com/opskat/opskat/internal/buildinfo.CommitID=${{ env.COMMIT_ID }}" -tags embed_opsctl
 
       - name: Import Apple certificate
         if: matrix.goos == 'darwin'

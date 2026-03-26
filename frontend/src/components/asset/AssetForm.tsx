@@ -196,6 +196,7 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
         resetRedisFields();
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editAsset, defaultGroupId]);
 
   const loadSSHConfig = (asset: asset_entity.Asset) => {

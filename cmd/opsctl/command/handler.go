@@ -55,7 +55,7 @@ func callHandler(ctx context.Context, handlers map[string]ai.ToolHandlerFunc, to
 		if tokenErr != nil {
 			logger.Default().Warn("read auth token", zap.Error(tokenErr))
 		}
-		go approval.SendNotification(
+		approval.SendNotification(
 			approval.SocketPath(dataDir),
 			token,
 			"asset",

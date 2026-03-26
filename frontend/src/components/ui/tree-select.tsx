@@ -157,6 +157,7 @@ export function TreeSelect({
   // Reset search and focus input when opening
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSearch("");
       setTimeout(() => searchRef.current?.focus(), 0);
     }

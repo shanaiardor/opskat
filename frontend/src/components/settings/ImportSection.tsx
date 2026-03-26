@@ -2,7 +2,12 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { PreviewTabbyConfig, ImportTabbySelected, PreviewSSHConfig, ImportSSHConfigSelected } from "../../../wailsjs/go/app/App";
+import {
+  PreviewTabbyConfig,
+  ImportTabbySelected,
+  PreviewSSHConfig,
+  ImportSSHConfigSelected,
+} from "../../../wailsjs/go/app/App";
 import { import_svc } from "../../../wailsjs/go/models";
 import { ImportDialog, ImportCallOptions } from "@/components/settings/ImportDialog";
 import { Import } from "lucide-react";
@@ -81,12 +86,7 @@ export function ImportSection() {
           <CardDescription>{t("import.sshConfigDesc")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <Button
-            onClick={handlePreviewSSHConfig}
-            disabled={sshConfigLoading}
-            variant="outline"
-            className="gap-1"
-          >
+          <Button onClick={handlePreviewSSHConfig} disabled={sshConfigLoading} variant="outline" className="gap-1">
             <Import className="h-4 w-4" />
             {sshConfigLoading ? t("import.importing") : t("import.sshConfig")}
           </Button>
