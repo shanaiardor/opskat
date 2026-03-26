@@ -40,13 +40,6 @@ func (s *conversationSvc) Create(ctx context.Context, conv *conversation_entity.
 	conv.Updatetime = now
 	conv.Status = conversation_entity.StatusActive
 
-	// 创建工作目录（本地 CLI 模式）
-	if conv.WorkDir != "" {
-		if err := os.MkdirAll(conv.WorkDir, 0755); err != nil {
-			return err
-		}
-	}
-
 	return conversation_repo.Conversation().Create(ctx, conv)
 }
 

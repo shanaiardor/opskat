@@ -62,7 +62,6 @@ type App struct {
 	sftpService             *sftp_svc.Service
 	forwardManager          *ForwardManager
 	aiAgent                 *ai.Agent
-	aiProvider              ai.Provider // 保留 provider 引用，用于权限回调注入
 	githubAuthCancel        context.CancelFunc
 	permissionChan          chan ai.PermissionResponse // 前端权限响应 channel（CLI 工具用）
 	pendingConfirms         sync.Map                   // map[string]chan ConfirmResponse（run_command 确认用）
@@ -77,8 +76,6 @@ type App struct {
 	mu                      sync.Mutex                 // 保护 connCounter
 	connCounter             int64                      // 连接ID计数器
 	currentConversationID   int64                      // 当前活跃会话ID
-	aiProviderType          string                     // 当前 provider 类型
-	aiModel                 string                     // 当前模型
 }
 
 // NewApp 创建App实例
@@ -110,6 +107,7 @@ func (a *App) Startup(ctx context.Context) {
 	a.startApprovalServer(authToken)
 	a.startSSHPoolServer(authToken)
 	a.startAutoUpdateCheck()
+	a.InitAIProvider()
 }
 
 // Cleanup 关闭审批服务等资源

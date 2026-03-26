@@ -53,6 +53,12 @@ type StreamEvent struct {
 	Error     string     `json:"error,omitempty"`      // type=error 时的错误信息
 }
 
+// PermissionResponse 权限响应
+type PermissionResponse struct {
+	Behavior string `json:"behavior"` // "allow" | "deny"
+	Message  string `json:"message"`  // deny 原因
+}
+
 // Provider AI 服务提供者接口
 type Provider interface {
 	// Chat 发送对话，返回流式事件 channel

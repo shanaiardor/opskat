@@ -2,6 +2,7 @@ package migrations
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -74,7 +75,10 @@ func migrateConfigToDB(tx *gorm.DB) {
 		Createtime: now,
 		Updatetime: now,
 	}
-	tx.Create(provider)
+	if err := tx.Create(provider).Error; err != nil {
+		// 最佳努力迁移，config.json 不会丢失
+		fmt.Printf("migrate AI config to database: %v\n", err)
+	}
 }
 
 // appDataDir 获取应用数据目录（migration 中不依赖 bootstrap 包避免循环引用）

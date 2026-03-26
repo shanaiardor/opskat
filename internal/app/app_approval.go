@@ -393,10 +393,4 @@ func (a *App) RespondCommandConfirm(confirmID, behavior string) {
 		}
 		return
 	}
-	// 否则转发到 Codex 工具确认
-	if p, ok := a.aiProvider.(*ai.LocalCLIProvider); ok {
-		if srv := p.GetCodexServer(); srv != nil {
-			srv.RespondConfirm(ai.PermissionResponse{Behavior: behavior})
-		}
-	}
 }
