@@ -115,3 +115,7 @@ make build-cli      # 仅构建 opsctl CLI
 ## 📄 开源许可
 
 本项目基于 [GPLv3](./LICENSE) 协议开源。
+
+## 🔗 友情链接
+
+- [LINUX DO](https://linux.do/)

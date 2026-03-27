@@ -115,3 +115,7 @@ We welcome all forms of contribution! Check out the issues or submit a pull requ
 ## 📄 License
 
 This project is open-sourced under the [GPLv3](./LICENSE) license.
+
+## 🔗 Links
+
+- [LINUX DO](https://linux.do/)
