@@ -9,7 +9,21 @@ import {
   SetUpdateChannel,
   CheckForUpdate,
   DownloadAndInstallUpdate,
+  GetDownloadMirror,
+  SetDownloadMirror,
+  GetAvailableMirrors,
 } from "../../../wailsjs/go/app/App";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
 import { Download, Loader2, ExternalLink, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { BrowserOpenURL, Quit } from "../../../wailsjs/runtime/runtime";
@@ -32,6 +46,10 @@ export function UpdateSection() {
   const [updating, setUpdating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [updateDone, setUpdateDone] = useState(false);
+  const [mirror, setMirror] = useState("");
+  const [mirrors, setMirrors] = useState<{ id: string; name: string; url: string }[]>([]);
+  const [customMirror, setCustomMirror] = useState("");
+  const [showChecksumDialog, setShowChecksumDialog] = useState(false);
 
   useEffect(() => {
     GetAppVersion()
@@ -40,6 +58,18 @@ export function UpdateSection() {
     GetUpdateChannel()
       .then(setChannel)
       .catch(() => {});
+    GetDownloadMirror()
+      .then((m) => {
+        setMirror(m);
+        GetAvailableMirrors().then((list) => {
+          setMirrors(list);
+          if (m && !list.some((item) => item.url === m)) {
+            setCustomMirror(m);
+            setMirror("custom");
+          }
+        });
+      })
+      .catch(() => {});
   }, []);
 
   const handleChannelChange = async (value: string) => {
@@ -47,6 +77,28 @@ export function UpdateSection() {
     setUpdateInfo(null);
     try {
       await SetUpdateChannel(value);
+    } catch (e: unknown) {
+      toast.error(errMsg(e));
+    }
+  };
+
+  const handleMirrorChange = async (value: string) => {
+    if (value === "custom") {
+      setMirror("custom");
+      return;
+    }
+    setMirror(value);
+    try {
+      await SetDownloadMirror(value);
+    } catch (e: unknown) {
+      toast.error(errMsg(e));
+    }
+  };
+
+  const handleCustomMirrorSave = async () => {
+    const trimmed = customMirror.trim();
+    try {
+      await SetDownloadMirror(trimmed);
     } catch (e: unknown) {
       toast.error(errMsg(e));
     }
@@ -87,15 +139,20 @@ export function UpdateSection() {
     }
   };
 
-  const handleUpdate = async () => {
+  const handleUpdate = async (skipChecksum = false) => {
     setUpdating(true);
     setProgress(0);
     try {
-      await DownloadAndInstallUpdate();
+      await DownloadAndInstallUpdate(skipChecksum);
       setUpdateDone(true);
       toast.success(t("appUpdate.updateSuccess"));
     } catch (e: unknown) {
-      toast.error(`${t("appUpdate.updateFailed")}: ${errMsg(e)}`);
+      const msg = errMsg(e);
+      if (msg.startsWith("CHECKSUM_FETCH_FAILED:")) {
+        setShowChecksumDialog(true);
+      } else {
+        toast.error(`${t("appUpdate.updateFailed")}: ${msg}`);
+      }
     } finally {
       setUpdating(false);
     }
@@ -128,6 +185,37 @@ export function UpdateSection() {
         </div>
         {channel === "nightly" && <p className="text-xs text-muted-foreground">{t("appUpdate.nightlyWarning")}</p>}
         {channel === "beta" && <p className="text-xs text-muted-foreground">{t("appUpdate.betaWarning")}</p>}
+
+        <div className="flex justify-between items-center text-sm">
+          <span className="text-muted-foreground">{t("appUpdate.downloadMirror")}</span>
+          <Select
+            value={mirror === "custom" ? "custom" : (mirror || "__default__")}
+            onValueChange={(v) => handleMirrorChange(v === "__default__" ? "" : v)}
+          >
+            <SelectTrigger className="w-[160px] h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {mirrors.map((m) => (
+                <SelectItem key={m.id} value={m.url || "__default__"}>
+                  {m.id === "github" ? t("appUpdate.mirrorGithub") : m.name}
+                </SelectItem>
+              ))}
+              <SelectItem value="custom">{t("appUpdate.mirrorCustom")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {mirror === "custom" && (
+          <div className="flex gap-2">
+            <Input
+              className="h-8 text-xs flex-1"
+              placeholder={t("appUpdate.mirrorCustomPlaceholder")}
+              value={customMirror}
+              onChange={(e) => setCustomMirror(e.target.value)}
+              onBlur={handleCustomMirrorSave}
+            />
+          </div>
+        )}
 
         <div className="flex gap-2">
           <Button onClick={handleCheck} disabled={checking || updating} size="sm" variant="outline">
@@ -183,7 +271,7 @@ export function UpdateSection() {
             )}
 
             {!updateDone ? (
-              <Button onClick={handleUpdate} disabled={updating} size="sm">
+              <Button onClick={() => handleUpdate()} disabled={updating} size="sm">
                 {updating ? (
                   <>
                     <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
@@ -208,6 +296,25 @@ export function UpdateSection() {
             )}
           </div>
         )}
+        <AlertDialog open={showChecksumDialog} onOpenChange={setShowChecksumDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("appUpdate.checksumSkipTitle")}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("appUpdate.checksumFetchFailed")}
+                <br />
+                <br />
+                {t("appUpdate.checksumSkipConfirm")}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("appUpdate.checksumSkipCancel")}</AlertDialogCancel>
+              <AlertDialogAction onClick={() => handleUpdate(true)}>
+                {t("appUpdate.checksumSkipAction")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </CardContent>
     </Card>
   );
