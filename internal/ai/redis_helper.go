@@ -48,7 +48,7 @@ func handleExecRedis(ctx context.Context, args map[string]any) (string, error) {
 	assetID := argInt64(args, "asset_id")
 	command := argString(args, "command")
 	if assetID == 0 || command == "" {
-		return "", fmt.Errorf("缺少必要参数 (asset_id, command)")
+		return "", fmt.Errorf("missing required parameters: asset_id, command")
 	}
 
 	// 权限检查
@@ -62,14 +62,14 @@ func handleExecRedis(ctx context.Context, args map[string]any) (string, error) {
 
 	asset, err := asset_svc.Asset().Get(ctx, assetID)
 	if err != nil {
-		return "", fmt.Errorf("资产不存在: %w", err)
+		return "", fmt.Errorf("asset not found: %w", err)
 	}
 	if !asset.IsRedis() {
-		return "", fmt.Errorf("资产不是Redis类型")
+		return "", fmt.Errorf("asset is not Redis type")
 	}
 	cfg, err := asset.GetRedisConfig()
 	if err != nil {
-		return "", fmt.Errorf("获取Redis配置失败: %w", err)
+		return "", fmt.Errorf("failed to get Redis config: %w", err)
 	}
 
 	// 覆盖默认数据库
@@ -79,7 +79,7 @@ func handleExecRedis(ctx context.Context, args map[string]any) (string, error) {
 
 	client, closer, err := getOrDialRedis(ctx, assetID, cfg)
 	if err != nil {
-		return "", fmt.Errorf("连接Redis失败: %w", err)
+		return "", fmt.Errorf("failed to connect to Redis: %w", err)
 	}
 	if getRedisCache(ctx) == nil {
 		if client != nil {
@@ -105,7 +105,7 @@ func getOrDialRedis(ctx context.Context, assetID int64, cfg *asset_entity.RedisC
 	dialFn := func() (*redis.Client, io.Closer, error) {
 		password, err := credential_resolver.Default().ResolveRedisPassword(ctx, cfg)
 		if err != nil {
-			return nil, nil, fmt.Errorf("解析凭据失败: %w", err)
+			return nil, nil, fmt.Errorf("failed to resolve credentials: %w", err)
 		}
 		return connpool.DialRedis(ctx, cfg, password, getSSHPool(ctx))
 	}
@@ -119,7 +119,7 @@ func getOrDialRedis(ctx context.Context, assetID int64, cfg *asset_entity.RedisC
 func ExecuteRedis(ctx context.Context, client *redis.Client, command string) (string, error) {
 	parts := strings.Fields(command)
 	if len(parts) == 0 {
-		return "", fmt.Errorf("redis 命令为空")
+		return "", fmt.Errorf("redis command is empty")
 	}
 
 	redisArgs := make([]any, len(parts))
@@ -132,7 +132,7 @@ func ExecuteRedis(ctx context.Context, client *redis.Client, command string) (st
 		if err == redis.Nil {
 			return `{"type":"nil","value":null}`, nil
 		}
-		return "", fmt.Errorf("redis 命令执行失败: %w", err)
+		return "", fmt.Errorf("redis command failed: %w", err)
 	}
 
 	return formatRedisResult(result)
@@ -141,7 +141,7 @@ func ExecuteRedis(ctx context.Context, client *redis.Client, command string) (st
 // ExecuteRedisRaw 使用预拆分的参数执行 Redis 命令（支持含空格的值）
 func ExecuteRedisRaw(ctx context.Context, client *redis.Client, args []string) (string, error) {
 	if len(args) == 0 {
-		return "", fmt.Errorf("redis 命令为空")
+		return "", fmt.Errorf("redis command is empty")
 	}
 
 	redisArgs := make([]any, len(args))
@@ -154,7 +154,7 @@ func ExecuteRedisRaw(ctx context.Context, client *redis.Client, args []string) (
 		if err == redis.Nil {
 			return `{"type":"nil","value":null}`, nil
 		}
-		return "", fmt.Errorf("redis 命令执行失败: %w", err)
+		return "", fmt.Errorf("redis command failed: %w", err)
 	}
 
 	return formatRedisResult(result)
@@ -184,7 +184,7 @@ func formatRedisResult(result any) (string, error) {
 	data, err := json.Marshal(out)
 	if err != nil {
 		logger.Default().Error("marshal redis result", zap.Error(err))
-		return "", fmt.Errorf("序列化 Redis 结果失败: %w", err)
+		return "", fmt.Errorf("failed to marshal Redis result: %w", err)
 	}
 	return string(data), nil
 }

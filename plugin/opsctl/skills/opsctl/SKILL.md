@@ -82,7 +82,7 @@ For full command reference with flags and examples, see [references/commands.md]
 
 ## Error Handling
 
-- **User rejection** (output contains "用户拒绝执行" or "用户拒绝 Grant 审批"): Stop the entire task immediately. Report the denied command and wait for user instructions. Do NOT retry, work around, or continue with remaining steps.
+- **User rejection** (output contains "user denied execution" or "user denied grant approval"): Stop the entire task immediately. Report the denied command and wait for user instructions. Do NOT retry, work around, or continue with remaining steps.
 - **SSH connection failure**: Report the error, check asset config with `get asset`. Do not retry blindly — ask user if host/credentials changed.
 - **Partial batch failure**: `batch` returns per-command results. Report failed commands with their errors, summarize successes. Ask user how to proceed with failures.
 - **Command not found on remote**: Suggest installing the missing tool or an alternative command. Do not assume package managers.

@@ -32,14 +32,22 @@ func (a *App) activateProvider(p *ai_provider_entity.AIProvider) error {
 	checker := ai.NewCommandPolicyChecker(a.makeCommandConfirmFunc())
 	checker.SetGrantRequestFunc(a.makeGrantRequestFunc())
 
+	maxOutputTokens := ai.ResolveMaxOutputTokens(p.MaxOutputTokens, p.Model)
+	contextWindow := ai.ResolveContextWindow(p.ContextWindow, p.Model)
+
 	var provider ai.Provider
 	switch p.Type {
 	case "anthropic":
-		provider = ai.NewAnthropicProvider(p.Name, p.APIBase, apiKey, p.Model)
+		provider = ai.NewAnthropicProvider(p.Name, p.APIBase, apiKey, p.Model, maxOutputTokens)
 	default: // "openai"
-		provider = ai.NewOpenAIProvider(p.Name, p.APIBase, apiKey, p.Model)
+		provider = ai.NewOpenAIProvider(p.Name, p.APIBase, apiKey, p.Model, maxOutputTokens)
 	}
-	a.aiAgent = ai.NewAgent(provider, ai.NewAuditingExecutor(ai.NewDefaultToolExecutor(), ai.NewDefaultAuditWriter()), checker, ai.NewDefaultConfig())
+
+	config := ai.NewDefaultConfig()
+	config.ContextWindow = contextWindow
+	a.aiAgent = ai.NewAgent(provider, func() ai.ToolExecutor {
+		return ai.NewAuditingExecutor(ai.NewDefaultToolExecutor(), ai.NewDefaultAuditWriter())
+	}, checker, config)
 	return nil
 }
 

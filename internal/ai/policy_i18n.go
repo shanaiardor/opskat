@@ -13,11 +13,11 @@ func WithPolicyLang(ctx context.Context, lang string) context.Context {
 	return context.WithValue(ctx, policyLangKey{}, lang)
 }
 
-// isZh 判断 context 中的语言是否为中文，默认中文
+// isZh 判断 context 中的语言是否为中文，默认英文
 func isZh(ctx context.Context) bool {
 	lang, _ := ctx.Value(policyLangKey{}).(string)
 	if lang == "" {
-		return true // 默认中文
+		return false
 	}
 	return strings.HasPrefix(strings.ToLower(lang), "zh")
 }

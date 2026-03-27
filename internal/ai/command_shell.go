@@ -17,7 +17,7 @@ func ExtractSubCommands(command string) ([]string, error) {
 	parser := syntax.NewParser()
 	file, err := parser.Parse(strings.NewReader(command), "")
 	if err != nil {
-		return nil, fmt.Errorf("shell 解析失败: %w", err)
+		return nil, fmt.Errorf("shell parse failed: %w", err)
 	}
 
 	var cmds []string

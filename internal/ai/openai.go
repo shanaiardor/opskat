@@ -17,19 +17,21 @@ import (
 
 // OpenAIProvider OpenAI 兼容 API provider
 type OpenAIProvider struct {
-	apiBase string
-	apiKey  string
-	model   string
-	name    string
+	apiBase         string
+	apiKey          string
+	model           string
+	name            string
+	maxOutputTokens int
 }
 
 // NewOpenAIProvider 创建 OpenAI 兼容 provider
-func NewOpenAIProvider(name, apiBase, apiKey, model string) *OpenAIProvider {
+func NewOpenAIProvider(name, apiBase, apiKey, model string, maxOutputTokens int) *OpenAIProvider {
 	return &OpenAIProvider{
-		name:    name,
-		apiBase: strings.TrimRight(apiBase, "/"),
-		apiKey:  apiKey,
-		model:   model,
+		name:            name,
+		apiBase:         strings.TrimRight(apiBase, "/"),
+		apiKey:          apiKey,
+		model:           model,
+		maxOutputTokens: maxOutputTokens,
 	}
 }
 
@@ -37,10 +39,11 @@ func (p *OpenAIProvider) Name() string { return p.name }
 
 // openAIRequest OpenAI API 请求体
 type openAIRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
-	Tools    []Tool    `json:"tools,omitempty"`
-	Stream   bool      `json:"stream"`
+	Model     string    `json:"model"`
+	Messages  []Message `json:"messages"`
+	Tools     []Tool    `json:"tools,omitempty"`
+	Stream    bool      `json:"stream"`
+	MaxTokens int       `json:"max_tokens,omitempty"`
 }
 
 // openAIStreamChunk SSE 流式响应 chunk
@@ -63,9 +66,10 @@ type openAIStreamChunk struct {
 
 func (p *OpenAIProvider) Chat(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamEvent, error) {
 	reqBody := openAIRequest{
-		Model:    p.model,
-		Messages: messages,
-		Stream:   true,
+		Model:     p.model,
+		Messages:  messages,
+		Stream:    true,
+		MaxTokens: p.maxOutputTokens,
 	}
 	if len(tools) > 0 {
 		reqBody.Tools = tools
@@ -73,19 +77,19 @@ func (p *OpenAIProvider) Chat(ctx context.Context, messages []Message, tools []T
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("序列化请求失败: %w", err)
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", p.apiBase+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+p.apiKey)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %w", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		defer func() {
@@ -97,7 +101,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, messages []Message, tools []T
 		if readErr != nil {
 			logger.Default().Warn("read error response body", zap.Error(readErr))
 		}
-		return nil, fmt.Errorf("API 错误 %d: %s", resp.StatusCode, string(errBody))
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(errBody))
 	}
 
 	ch := make(chan StreamEvent, 32)

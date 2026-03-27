@@ -64,7 +64,7 @@ func handleExecSQL(ctx context.Context, args map[string]any) (string, error) {
 	assetID := argInt64(args, "asset_id")
 	sqlText := argString(args, "sql")
 	if assetID == 0 || sqlText == "" {
-		return "", fmt.Errorf("缺少必要参数 (asset_id, sql)")
+		return "", fmt.Errorf("missing required parameters: asset_id, sql")
 	}
 
 	// 权限检查
@@ -78,14 +78,14 @@ func handleExecSQL(ctx context.Context, args map[string]any) (string, error) {
 
 	asset, err := asset_svc.Asset().Get(ctx, assetID)
 	if err != nil {
-		return "", fmt.Errorf("资产不存在: %w", err)
+		return "", fmt.Errorf("asset not found: %w", err)
 	}
 	if !asset.IsDatabase() {
-		return "", fmt.Errorf("资产不是数据库类型")
+		return "", fmt.Errorf("asset is not database type")
 	}
 	cfg, err := asset.GetDatabaseConfig()
 	if err != nil {
-		return "", fmt.Errorf("获取数据库配置失败: %w", err)
+		return "", fmt.Errorf("failed to get database config: %w", err)
 	}
 
 	// 覆盖默认数据库
@@ -95,7 +95,7 @@ func handleExecSQL(ctx context.Context, args map[string]any) (string, error) {
 
 	db, closer, err := getOrDialDatabase(ctx, assetID, cfg)
 	if err != nil {
-		return "", fmt.Errorf("连接数据库失败: %w", err)
+		return "", fmt.Errorf("failed to connect to database: %w", err)
 	}
 	// 如果不是缓存连接，使用后关闭
 	if getDatabaseCache(ctx) == nil {
@@ -122,7 +122,7 @@ func getOrDialDatabase(ctx context.Context, assetID int64, cfg *asset_entity.Dat
 	dialFn := func() (*sql.DB, io.Closer, error) {
 		password, err := credential_resolver.Default().ResolveDatabasePassword(ctx, cfg)
 		if err != nil {
-			return nil, nil, fmt.Errorf("解析凭据失败: %w", err)
+			return nil, nil, fmt.Errorf("failed to resolve credentials: %w", err)
 		}
 		return connpool.DialDatabase(ctx, cfg, password, getSSHPool(ctx))
 	}
@@ -138,7 +138,7 @@ func ExecuteSQL(ctx context.Context, db *sql.DB, sqlText string) (string, error)
 	if isQueryStatement(trimmed) {
 		rows, err := db.QueryContext(ctx, sqlText)
 		if err != nil {
-			return "", fmt.Errorf("SQL 查询失败: %w", err)
+			return "", fmt.Errorf("SQL query failed: %w", err)
 		}
 		defer func() {
 			if err := rows.Close(); err != nil {
@@ -150,7 +150,7 @@ func ExecuteSQL(ctx context.Context, db *sql.DB, sqlText string) (string, error)
 
 	result, err := db.ExecContext(ctx, sqlText)
 	if err != nil {
-		return "", fmt.Errorf("SQL 执行失败: %w", err)
+		return "", fmt.Errorf("SQL execution failed: %w", err)
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
@@ -206,7 +206,7 @@ func formatRowsJSON(rows *sql.Rows) (string, error) {
 	})
 	if err != nil {
 		logger.Default().Error("marshal query result", zap.Error(err))
-		return "", fmt.Errorf("序列化查询结果失败: %w", err)
+		return "", fmt.Errorf("failed to marshal query result: %w", err)
 	}
 	return string(data), nil
 }

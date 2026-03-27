@@ -303,31 +303,19 @@ func GetPolicyChecker(ctx context.Context) *CommandPolicyChecker {
 	return c
 }
 
-func formatDenyMessage(ctx context.Context, assetName, command, reason string, hints []string) string {
+func formatDenyMessage(_ context.Context, assetName, command, reason string, hints []string) string {
 	var sb strings.Builder
 	if assetName != "" {
-		if isZh(ctx) {
-			fmt.Fprintf(&sb, "命令执行被拒绝（%s）。\n资产: %s\n命令: %s", reason, assetName, command)
-		} else {
-			fmt.Fprintf(&sb, "Command denied (%s).\nAsset: %s\nCommand: %s", reason, assetName, command)
-		}
+		fmt.Fprintf(&sb, "Command denied (%s).\nAsset: %s\nCommand: %s", reason, assetName, command)
 	} else {
-		if isZh(ctx) {
-			fmt.Fprintf(&sb, "命令执行被拒绝（%s）。\n命令: %s", reason, command)
-		} else {
-			fmt.Fprintf(&sb, "Command denied (%s).\nCommand: %s", reason, command)
-		}
+		fmt.Fprintf(&sb, "Command denied (%s).\nCommand: %s", reason, command)
 	}
 	if len(hints) > 0 {
-		sb.WriteString(policyMsg(ctx,
-			"\n\nAllowed command patterns for this asset:\n",
-			"\n\n该资产允许的相关命令格式：\n"))
+		sb.WriteString("\n\nAllowed command patterns for this asset:\n")
 		for _, h := range hints {
 			fmt.Fprintf(&sb, "- %s\n", h)
 		}
-		sb.WriteString(policyMsg(ctx,
-			"\nPlease adjust the command accordingly and retry.",
-			"\n请按照上述格式调整命令后重试。"))
+		sb.WriteString("\nPlease adjust the command accordingly and retry.")
 	}
 	return sb.String()
 }

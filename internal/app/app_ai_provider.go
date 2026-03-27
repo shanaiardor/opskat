@@ -3,22 +3,41 @@ package app
 import (
 	"fmt"
 
+	"github.com/opskat/opskat/internal/ai"
 	"github.com/opskat/opskat/internal/model/entity/ai_provider_entity"
 	"github.com/opskat/opskat/internal/service/ai_provider_svc"
 )
 
-// AIProviderInfo 返回给前端的 Provider 信息（API Key 脱敏）
+// AIProviderInfo 返回给前端的 Provider 信息
 type AIProviderInfo struct {
-	ID           int64  `json:"id"`
-	Name         string `json:"name"`
-	Type         string `json:"type"`
-	APIBase      string `json:"apiBase"`
-	MaskedAPIKey string `json:"maskedApiKey"`
-	Model        string `json:"model"`
-	IsActive     bool   `json:"isActive"`
+	ID              int64  `json:"id"`
+	Name            string `json:"name"`
+	Type            string `json:"type"`
+	APIBase         string `json:"apiBase"`
+	APIKey          string `json:"apiKey"`
+	MaskedAPIKey    string `json:"maskedApiKey"`
+	Model           string `json:"model"`
+	MaxOutputTokens int    `json:"maxOutputTokens"`
+	ContextWindow   int    `json:"contextWindow"`
+	IsActive        bool   `json:"isActive"`
 }
 
-// ListAIProviders 列出所有 Provider（API Key 脱敏）
+func toProviderInfo(p *ai_provider_entity.AIProvider, apiKey string) AIProviderInfo {
+	return AIProviderInfo{
+		ID:              p.ID,
+		Name:            p.Name,
+		Type:            p.Type,
+		APIBase:         p.APIBase,
+		APIKey:          apiKey,
+		MaskedAPIKey:    maskAPIKey(apiKey),
+		Model:           p.Model,
+		MaxOutputTokens: p.MaxOutputTokens,
+		ContextWindow:   p.ContextWindow,
+		IsActive:        p.IsActive,
+	}
+}
+
+// ListAIProviders 列出所有 Provider
 func (a *App) ListAIProviders() ([]AIProviderInfo, error) {
 	list, err := ai_provider_svc.AIProvider().List(a.langCtx())
 	if err != nil {
@@ -27,15 +46,7 @@ func (a *App) ListAIProviders() ([]AIProviderInfo, error) {
 	result := make([]AIProviderInfo, 0, len(list))
 	for _, p := range list {
 		decrypted, _ := ai_provider_svc.AIProvider().DecryptAPIKey(p)
-		result = append(result, AIProviderInfo{
-			ID:           p.ID,
-			Name:         p.Name,
-			Type:         p.Type,
-			APIBase:      p.APIBase,
-			MaskedAPIKey: maskAPIKey(decrypted),
-			Model:        p.Model,
-			IsActive:     p.IsActive,
-		})
+		result = append(result, toProviderInfo(p, decrypted))
 	}
 	return result, nil
 }
@@ -47,41 +58,29 @@ func (a *App) GetActiveAIProvider() (*AIProviderInfo, error) {
 		return nil, nil //nolint:nilerr // 无激活 provider 时返回 nil 表示未配置
 	}
 	decrypted, _ := ai_provider_svc.AIProvider().DecryptAPIKey(p)
-	return &AIProviderInfo{
-		ID:           p.ID,
-		Name:         p.Name,
-		Type:         p.Type,
-		APIBase:      p.APIBase,
-		MaskedAPIKey: maskAPIKey(decrypted),
-		Model:        p.Model,
-		IsActive:     p.IsActive,
-	}, nil
+	info := toProviderInfo(p, decrypted)
+	return &info, nil
 }
 
 // CreateAIProvider 创建新 Provider
-func (a *App) CreateAIProvider(name, providerType, apiBase, apiKey, model string) (*AIProviderInfo, error) {
+func (a *App) CreateAIProvider(name, providerType, apiBase, apiKey, model string, maxOutputTokens, contextWindow int) (*AIProviderInfo, error) {
 	p := &ai_provider_entity.AIProvider{
-		Name:    name,
-		Type:    providerType,
-		APIBase: apiBase,
-		Model:   model,
+		Name:            name,
+		Type:            providerType,
+		APIBase:         apiBase,
+		Model:           model,
+		MaxOutputTokens: maxOutputTokens,
+		ContextWindow:   contextWindow,
 	}
 	if err := ai_provider_svc.AIProvider().Create(a.langCtx(), p, apiKey); err != nil {
 		return nil, fmt.Errorf("创建 Provider 失败: %w", err)
 	}
-	return &AIProviderInfo{
-		ID:           p.ID,
-		Name:         p.Name,
-		Type:         p.Type,
-		APIBase:      p.APIBase,
-		MaskedAPIKey: maskAPIKey(apiKey),
-		Model:        p.Model,
-		IsActive:     p.IsActive,
-	}, nil
+	info := toProviderInfo(p, maskAPIKey(apiKey))
+	return &info, nil
 }
 
 // UpdateAIProvider 更新 Provider
-func (a *App) UpdateAIProvider(id int64, name, providerType, apiBase, apiKey, model string) error {
+func (a *App) UpdateAIProvider(id int64, name, providerType, apiBase, apiKey, model string, maxOutputTokens, contextWindow int) error {
 	p, err := ai_provider_svc.AIProvider().Get(a.langCtx(), id)
 	if err != nil {
 		return fmt.Errorf("provider 不存在: %w", err)
@@ -90,6 +89,8 @@ func (a *App) UpdateAIProvider(id int64, name, providerType, apiBase, apiKey, mo
 	p.Type = providerType
 	p.APIBase = apiBase
 	p.Model = model
+	p.MaxOutputTokens = maxOutputTokens
+	p.ContextWindow = contextWindow
 	if err := ai_provider_svc.AIProvider().Update(a.langCtx(), p, apiKey); err != nil {
 		return fmt.Errorf("更新 Provider 失败: %w", err)
 	}
@@ -123,4 +124,54 @@ func (a *App) SetActiveAIProvider(id int64) error {
 		return err
 	}
 	return a.activateProvider(p)
+}
+
+// AIModelInfo 模型信息
+type AIModelInfo struct {
+	ID              string `json:"id"`
+	MaxOutputTokens int    `json:"maxOutputTokens"`
+	ContextWindow   int    `json:"contextWindow"`
+}
+
+// FetchAIModels 从 API 获取可用模型列表
+func (a *App) FetchAIModels(providerType, apiBase, apiKey string) ([]AIModelInfo, error) {
+	if apiKey == "" {
+		return nil, fmt.Errorf("API Key 不能为空")
+	}
+
+	models, err := ai.FetchModels(providerType, apiBase, apiKey)
+	if err != nil {
+		return nil, fmt.Errorf("获取模型列表失败: %w", err)
+	}
+
+	result := make([]AIModelInfo, 0, len(models))
+	for _, m := range models {
+		info := AIModelInfo{ID: m.ID}
+		if d := ai.GetModelDefaults(m.ID); d != nil {
+			info.MaxOutputTokens = d.MaxOutputTokens
+			info.ContextWindow = d.ContextWindow
+		} else {
+			info.MaxOutputTokens = ai.FallbackMaxOutputTokens
+			info.ContextWindow = ai.FallbackContextWindow
+		}
+		result = append(result, info)
+	}
+	return result, nil
+}
+
+// GetModelDefaults 获取模型的默认参数，未知模型返回 fallback 默认值
+func (a *App) GetModelDefaults(model string) *AIModelInfo {
+	d := ai.GetModelDefaults(model)
+	if d != nil {
+		return &AIModelInfo{
+			ID:              model,
+			MaxOutputTokens: d.MaxOutputTokens,
+			ContextWindow:   d.ContextWindow,
+		}
+	}
+	return &AIModelInfo{
+		ID:              model,
+		MaxOutputTokens: ai.FallbackMaxOutputTokens,
+		ContextWindow:   ai.FallbackContextWindow,
+	}
 }

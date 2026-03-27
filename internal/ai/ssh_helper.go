@@ -31,13 +31,13 @@ func createSSHClient(cfg *asset_entity.SSHConfig, password, key string) (*ssh.Cl
 		if key != "" {
 			signer, err := ssh.ParsePrivateKey([]byte(key))
 			if err != nil {
-				return nil, fmt.Errorf("解析私钥失败: %w", err)
+				return nil, fmt.Errorf("failed to parse private key: %w", err)
 			}
 			authMethods = []ssh.AuthMethod{ssh.PublicKeys(signer)}
 		}
 	}
 	if len(authMethods) == 0 {
-		return nil, fmt.Errorf("没有可用的认证方式")
+		return nil, fmt.Errorf("no authentication method available")
 	}
 
 	sshConfig := &ssh.ClientConfig{
@@ -50,7 +50,7 @@ func createSSHClient(cfg *asset_entity.SSHConfig, password, key string) (*ssh.Cl
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	client, err := ssh.Dial("tcp", addr, sshConfig)
 	if err != nil {
-		return nil, fmt.Errorf("SSH连接失败: %w", err)
+		return nil, fmt.Errorf("SSH connection failed: %w", err)
 	}
 	return client, nil
 }
@@ -59,18 +59,18 @@ func createSSHClient(cfg *asset_entity.SSHConfig, password, key string) (*ssh.Cl
 func resolveAssetSSH(ctx context.Context, assetID int64) (*asset_entity.Asset, *asset_entity.SSHConfig, string, string, error) {
 	asset, err := asset_svc.Asset().Get(ctx, assetID)
 	if err != nil {
-		return nil, nil, "", "", fmt.Errorf("资产不存在: %w", err)
+		return nil, nil, "", "", fmt.Errorf("asset not found: %w", err)
 	}
 	if !asset.IsSSH() {
-		return nil, nil, "", "", fmt.Errorf("资产不是SSH类型")
+		return nil, nil, "", "", fmt.Errorf("asset is not SSH type")
 	}
 	sshCfg, err := asset.GetSSHConfig()
 	if err != nil {
-		return nil, nil, "", "", fmt.Errorf("获取SSH配置失败: %w", err)
+		return nil, nil, "", "", fmt.Errorf("failed to get SSH config: %w", err)
 	}
 	password, key, err := credential_resolver.Default().ResolveSSHCredentials(ctx, sshCfg)
 	if err != nil {
-		return nil, nil, "", "", fmt.Errorf("解析凭据失败: %w", err)
+		return nil, nil, "", "", fmt.Errorf("failed to resolve credentials: %w", err)
 	}
 	return asset, sshCfg, password, key, nil
 }
@@ -94,7 +94,7 @@ func executeSSHCommand(cfg *asset_entity.SSHConfig, password, key string, comman
 func runSSHCommand(client *ssh.Client, command string) (string, error) {
 	session, err := client.NewSession()
 	if err != nil {
-		return "", fmt.Errorf("创建会话失败: %w", err)
+		return "", fmt.Errorf("failed to create session: %w", err)
 	}
 	defer func() {
 		if err := session.Close(); err != nil {
@@ -108,9 +108,9 @@ func runSSHCommand(client *ssh.Client, command string) (string, error) {
 
 	if err := session.Run(command); err != nil {
 		if stderr.Len() > 0 {
-			return "", fmt.Errorf("命令执行失败: %s", stderr.String())
+			return "", fmt.Errorf("command failed: %s", stderr.String())
 		}
-		return "", fmt.Errorf("命令执行失败: %w", err)
+		return "", fmt.Errorf("command failed: %w", err)
 	}
 
 	output := stdout.String()
@@ -134,7 +134,7 @@ func executeWithSFTP(cfg *asset_entity.SSHConfig, password, key string, fn func(
 
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
-		return fmt.Errorf("创建SFTP客户端失败: %w", err)
+		return fmt.Errorf("failed to create SFTP client: %w", err)
 	}
 	defer func() {
 		if err := sftpClient.Close(); err != nil {
@@ -173,7 +173,7 @@ func ExecWithStdio(ctx context.Context, assetID int64, command string, stdin io.
 
 	session, err := client.NewSession()
 	if err != nil {
-		return fmt.Errorf("创建会话失败: %w", err)
+		return fmt.Errorf("failed to create session: %w", err)
 	}
 	defer func() {
 		if err := session.Close(); err != nil {
@@ -195,19 +195,19 @@ func CopyBetweenAssets(ctx context.Context, srcAssetID int64, srcPath string, ds
 	// 解析源资产凭证
 	_, srcCfg, srcPassword, srcKey, err := resolveAssetSSH(ctx, srcAssetID)
 	if err != nil {
-		return fmt.Errorf("源资产解析失败: %w", err)
+		return fmt.Errorf("failed to resolve source asset: %w", err)
 	}
 
 	// 解析目标资产凭证
 	_, dstCfg, dstPassword, dstKey, err := resolveAssetSSH(ctx, dstAssetID)
 	if err != nil {
-		return fmt.Errorf("目标资产解析失败: %w", err)
+		return fmt.Errorf("failed to resolve destination asset: %w", err)
 	}
 
 	// 创建 SSH 客户端
 	srcClient, err := createSSHClient(srcCfg, srcPassword, srcKey)
 	if err != nil {
-		return fmt.Errorf("源资产SSH连接失败: %w", err)
+		return fmt.Errorf("source asset SSH connection failed: %w", err)
 	}
 	defer func() {
 		if err := srcClient.Close(); err != nil {
@@ -217,7 +217,7 @@ func CopyBetweenAssets(ctx context.Context, srcAssetID int64, srcPath string, ds
 
 	dstClient, err := createSSHClient(dstCfg, dstPassword, dstKey)
 	if err != nil {
-		return fmt.Errorf("目标资产SSH连接失败: %w", err)
+		return fmt.Errorf("destination asset SSH connection failed: %w", err)
 	}
 	defer func() {
 		if err := dstClient.Close(); err != nil {
@@ -228,7 +228,7 @@ func CopyBetweenAssets(ctx context.Context, srcAssetID int64, srcPath string, ds
 	// 创建 SFTP 客户端
 	srcSFTP, err := sftp.NewClient(srcClient)
 	if err != nil {
-		return fmt.Errorf("源资产SFTP连接失败: %w", err)
+		return fmt.Errorf("source asset SFTP connection failed: %w", err)
 	}
 	defer func() {
 		if err := srcSFTP.Close(); err != nil {
@@ -238,7 +238,7 @@ func CopyBetweenAssets(ctx context.Context, srcAssetID int64, srcPath string, ds
 
 	dstSFTP, err := sftp.NewClient(dstClient)
 	if err != nil {
-		return fmt.Errorf("目标资产SFTP连接失败: %w", err)
+		return fmt.Errorf("destination asset SFTP connection failed: %w", err)
 	}
 	defer func() {
 		if err := dstSFTP.Close(); err != nil {
@@ -249,7 +249,7 @@ func CopyBetweenAssets(ctx context.Context, srcAssetID int64, srcPath string, ds
 	// 流式传输
 	srcFile, err := srcSFTP.Open(srcPath)
 	if err != nil {
-		return fmt.Errorf("打开源文件失败: %w", err)
+		return fmt.Errorf("failed to open source file: %w", err)
 	}
 	defer func() {
 		if err := srcFile.Close(); err != nil {
@@ -259,7 +259,7 @@ func CopyBetweenAssets(ctx context.Context, srcAssetID int64, srcPath string, ds
 
 	dstFile, err := dstSFTP.Create(dstPath)
 	if err != nil {
-		return fmt.Errorf("创建目标文件失败: %w", err)
+		return fmt.Errorf("failed to create destination file: %w", err)
 	}
 	defer func() {
 		if err := dstFile.Close(); err != nil {
@@ -268,7 +268,7 @@ func CopyBetweenAssets(ctx context.Context, srcAssetID int64, srcPath string, ds
 	}()
 
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return fmt.Errorf("文件传输失败: %w", err)
+		return fmt.Errorf("file transfer failed: %w", err)
 	}
 
 	return nil

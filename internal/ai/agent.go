@@ -75,9 +75,18 @@ func (a *Agent) Chat(ctx context.Context, messages []Message, onEvent func(Strea
 	maxResultLen := a.config.effectiveMaxResultLen()
 
 	for round := 0; round < maxRounds; round++ {
+		// 检查是否需要压缩上下文
+		if a.config.ContextWindow > 0 && needsCompression(messages, a.config.ContextWindow) {
+			logger.Default().Info("compressing conversation context",
+				zap.Int("messages", len(messages)),
+				zap.Int("estimated_tokens", estimateTokens(messages)),
+				zap.Int("context_window", a.config.ContextWindow))
+			messages = compressMessages(ctx, a.provider, messages)
+		}
+
 		ch, err := a.provider.Chat(ctx, messages, a.tools)
 		if err != nil {
-			return fmt.Errorf("provider chat 失败: %w", err)
+			return fmt.Errorf("provider chat failed: %w", err)
 		}
 
 		var contentBuf string
@@ -97,7 +106,7 @@ func (a *Agent) Chat(ctx context.Context, messages []Message, onEvent func(Strea
 				onEvent(event)
 			case "error":
 				onEvent(event)
-				return fmt.Errorf("provider 错误: %s", event.Error)
+				return fmt.Errorf("provider error: %s", event.Error)
 			case "done":
 				// 不立即转发 done，可能还有 tool 调用
 			}
@@ -130,11 +139,11 @@ func (a *Agent) Chat(ctx context.Context, messages []Message, onEvent func(Strea
 			g.Go(func() error {
 				result, execErr := executor.Execute(gCtx, tc.Function.Name, tc.Function.Arguments)
 				if execErr != nil {
-					result = fmt.Sprintf("工具执行错误: %s", execErr.Error())
+					result = fmt.Sprintf("Tool execution error: %s", execErr.Error())
 				}
 				if len(result) > maxResultLen {
 					result = result[:2048] + fmt.Sprintf(
-						"\n\n--- 输出被截断 ---\n输出内容过长（%d 字节，超过 %d 字节限制）。请使用更精确的筛选条件、添加 | head 或 | grep 等管道命令缩小输出范围，或分段查询。",
+						"\n\n--- Output truncated ---\nOutput too large (%d bytes, exceeds %d byte limit). Use more precise filters, pipe through | head or | grep, or split the query.",
 						len(result), maxResultLen)
 				}
 				mu.Lock()
@@ -187,7 +196,7 @@ func (e *DefaultToolExecutor) Close() error {
 func (e *DefaultToolExecutor) Execute(ctx context.Context, name string, argsJSON string) (string, error) {
 	handler, ok := e.handlers[name]
 	if !ok {
-		return "", fmt.Errorf("未知工具: %s", name)
+		return "", fmt.Errorf("unknown tool: %s", name)
 	}
 	var args map[string]any
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {

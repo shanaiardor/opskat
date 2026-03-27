@@ -16,22 +16,24 @@ import (
 
 // AnthropicProvider Anthropic Messages API provider
 type AnthropicProvider struct {
-	apiBase string
-	apiKey  string
-	model   string
-	name    string
+	apiBase         string
+	apiKey          string
+	model           string
+	name            string
+	maxOutputTokens int
 }
 
 // NewAnthropicProvider 创建 Anthropic provider
-func NewAnthropicProvider(name, apiBase, apiKey, model string) *AnthropicProvider {
+func NewAnthropicProvider(name, apiBase, apiKey, model string, maxOutputTokens int) *AnthropicProvider {
 	if apiBase == "" {
 		apiBase = "https://api.anthropic.com"
 	}
 	return &AnthropicProvider{
-		name:    name,
-		apiBase: strings.TrimRight(apiBase, "/"),
-		apiKey:  apiKey,
-		model:   model,
+		name:            name,
+		apiBase:         strings.TrimRight(apiBase, "/"),
+		apiKey:          apiKey,
+		model:           model,
+		maxOutputTokens: maxOutputTokens,
 	}
 }
 
@@ -39,13 +41,23 @@ func (p *AnthropicProvider) Name() string { return p.name }
 
 // --- Anthropic API 请求/响应类型 ---
 
+type anthropicCacheControl struct {
+	Type string `json:"type"` // "ephemeral"
+}
+
 type anthropicRequest struct {
-	Model     string             `json:"model"`
-	System    string             `json:"system,omitempty"`
-	Messages  []anthropicMessage `json:"messages"`
-	Tools     []anthropicTool    `json:"tools,omitempty"`
-	MaxTokens int                `json:"max_tokens"`
-	Stream    bool               `json:"stream"`
+	Model     string                 `json:"model"`
+	System    []anthropicSystemBlock `json:"system,omitempty"`
+	Messages  []anthropicMessage     `json:"messages"`
+	Tools     []anthropicTool        `json:"tools,omitempty"`
+	MaxTokens int                    `json:"max_tokens"`
+	Stream    bool                   `json:"stream"`
+}
+
+type anthropicSystemBlock struct {
+	Type         string                 `json:"type"`
+	Text         string                 `json:"text"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
 type anthropicMessage struct {
@@ -54,19 +66,21 @@ type anthropicMessage struct {
 }
 
 type anthropicContentBlock struct {
-	Type      string      `json:"type"`
-	Text      string      `json:"text,omitempty"`
-	ID        string      `json:"id,omitempty"`
-	Name      string      `json:"name,omitempty"`
-	Input     interface{} `json:"input,omitempty"`
-	ToolUseID string      `json:"tool_use_id,omitempty"`
-	Content   string      `json:"content,omitempty"`
+	Type         string                 `json:"type"`
+	Text         string                 `json:"text,omitempty"`
+	ID           string                 `json:"id,omitempty"`
+	Name         string                 `json:"name,omitempty"`
+	Input        interface{}            `json:"input,omitempty"`
+	ToolUseID    string                 `json:"tool_use_id,omitempty"`
+	Content      string                 `json:"content,omitempty"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
 type anthropicTool struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	InputSchema interface{} `json:"input_schema"`
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description"`
+	InputSchema  interface{}            `json:"input_schema"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
 // --- SSE 流式响应类型 ---
@@ -106,26 +120,39 @@ type blockState struct {
 }
 
 func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message, tools []Tool) (<-chan StreamEvent, error) {
-	systemPrompt, anthropicMsgs := p.convertMessages(messages)
+	systemText, anthropicMsgs := p.convertMessages(messages)
 	anthropicTools := p.convertTools(tools)
+
+	// System prompt 使用 cache_control 启用缓存
+	var systemBlocks []anthropicSystemBlock
+	if systemText != "" {
+		systemBlocks = []anthropicSystemBlock{
+			{Type: "text", Text: systemText, CacheControl: &anthropicCacheControl{Type: "ephemeral"}},
+		}
+	}
+
+	// 最后一个 tool 添加 cache_control，缓存整个 tool 定义
+	if len(anthropicTools) > 0 {
+		anthropicTools[len(anthropicTools)-1].CacheControl = &anthropicCacheControl{Type: "ephemeral"}
+	}
 
 	reqBody := anthropicRequest{
 		Model:     p.model,
-		System:    systemPrompt,
+		System:    systemBlocks,
 		Messages:  anthropicMsgs,
 		Tools:     anthropicTools,
-		MaxTokens: 8192,
+		MaxTokens: p.maxOutputTokens,
 		Stream:    true,
 	}
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("序列化请求失败: %w", err)
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", p.apiBase+"/v1/messages", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", p.apiKey)
@@ -133,7 +160,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message, tools 
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %w", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		defer func() {
@@ -145,7 +172,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message, tools 
 		if readErr != nil {
 			logger.Default().Warn("read error response body", zap.Error(readErr))
 		}
-		return nil, fmt.Errorf("API 错误 %d: %s", resp.StatusCode, string(errBody))
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(errBody))
 	}
 
 	ch := make(chan StreamEvent, 32)

@@ -2,11 +2,12 @@ package ai
 
 // AgentConfig Agent 配置
 type AgentConfig struct {
-	MaxRounds    int       // 最大对话轮次，0 表示使用默认值
-	MaxResultLen int       // 工具结果最大长度，0 表示使用默认值
-	Tools        []ToolDef // 可用工具列表，nil 表示全部
-	SystemPrompt string    // System Prompt，空表示不注入
-	IsSubAgent   bool      // 是否为 Sub Agent（限制嵌套）
+	MaxRounds     int       // 最大对话轮次，0 表示使用默认值
+	MaxResultLen  int       // 工具结果最大长度，0 表示使用默认值
+	ContextWindow int       // 上下文窗口大小（token 数），0 表示不启用自动压缩
+	Tools         []ToolDef // 可用工具列表，nil 表示全部
+	SystemPrompt  string    // System Prompt，空表示不注入
+	IsSubAgent    bool      // 是否为 Sub Agent（限制嵌套）
 }
 
 const (

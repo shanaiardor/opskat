@@ -23,10 +23,10 @@ func handleRequestGrant(ctx context.Context, args map[string]any) (string, error
 	commandPatterns := argString(args, "command_patterns")
 	reason := argString(args, "reason")
 	if assetID == 0 {
-		return "", fmt.Errorf("缺少参数 asset_id")
+		return "", fmt.Errorf("missing required parameter: asset_id")
 	}
 	if commandPatterns == "" {
-		return "", fmt.Errorf("缺少参数 command_patterns")
+		return "", fmt.Errorf("missing required parameter: command_patterns")
 	}
 
 	// 按行拆分模式
@@ -38,12 +38,12 @@ func handleRequestGrant(ctx context.Context, args map[string]any) (string, error
 		}
 	}
 	if len(patterns) == 0 {
-		return "", fmt.Errorf("command_patterns 不能为空")
+		return "", fmt.Errorf("command_patterns must not be empty")
 	}
 
 	checker := GetPolicyChecker(ctx)
 	if checker == nil {
-		return "", fmt.Errorf("权限检查器不可用")
+		return "", fmt.Errorf("permission checker not available")
 	}
 
 	result := checker.SubmitGrant(ctx, assetID, patterns, reason)
@@ -55,10 +55,10 @@ func handleRunCommand(ctx context.Context, args map[string]any) (string, error) 
 	assetID := argInt64(args, "asset_id")
 	command := argString(args, "command")
 	if assetID == 0 {
-		return "", fmt.Errorf("缺少参数 asset_id")
+		return "", fmt.Errorf("missing required parameter: asset_id")
 	}
 	if command == "" {
-		return "", fmt.Errorf("缺少参数 command")
+		return "", fmt.Errorf("missing required parameter: command")
 	}
 
 	// 权限检查（两条路径共用）
@@ -72,14 +72,14 @@ func handleRunCommand(ctx context.Context, args map[string]any) (string, error) 
 
 	asset, err := asset_svc.Asset().Get(ctx, assetID)
 	if err != nil {
-		return "", fmt.Errorf("资产不存在: %w", err)
+		return "", fmt.Errorf("asset not found: %w", err)
 	}
 	if !asset.IsSSH() {
-		return "", fmt.Errorf("资产不是SSH类型")
+		return "", fmt.Errorf("asset is not SSH type")
 	}
 	sshCfg, err := asset.GetSSHConfig()
 	if err != nil {
-		return "", fmt.Errorf("获取SSH配置失败: %w", err)
+		return "", fmt.Errorf("failed to get SSH config: %w", err)
 	}
 
 	// 如果有 SSH 缓存（内置 Agent 模式），使用缓存连接
@@ -90,7 +90,7 @@ func handleRunCommand(ctx context.Context, args map[string]any) (string, error) 
 	// 无缓存，创建一次性连接
 	password, key, err := credential_resolver.Default().ResolveSSHCredentials(ctx, sshCfg)
 	if err != nil {
-		return "", fmt.Errorf("解析凭据失败: %w", err)
+		return "", fmt.Errorf("failed to resolve credentials: %w", err)
 	}
 	return executeSSHCommand(sshCfg, password, key, command)
 }
@@ -134,7 +134,7 @@ func handleUploadFile(ctx context.Context, args map[string]any) (string, error) 
 	localPath := argString(args, "local_path")
 	remotePath := argString(args, "remote_path")
 	if assetID == 0 || localPath == "" || remotePath == "" {
-		return "", fmt.Errorf("缺少必要参数 (asset_id, local_path, remote_path)")
+		return "", fmt.Errorf("missing required parameters: asset_id, local_path, remote_path")
 	}
 
 	_, sshCfg, password, key, err := resolveAssetSSH(ctx, assetID)
@@ -145,7 +145,7 @@ func handleUploadFile(ctx context.Context, args map[string]any) (string, error) 
 	err = executeWithSFTP(sshCfg, password, key, func(client *sftp.Client) error {
 		srcFile, err := os.Open(localPath) //nolint:gosec
 		if err != nil {
-			return fmt.Errorf("打开本地文件失败: %w", err)
+			return fmt.Errorf("failed to open local file: %w", err)
 		}
 		defer func() {
 			if err := srcFile.Close(); err != nil {
@@ -155,7 +155,7 @@ func handleUploadFile(ctx context.Context, args map[string]any) (string, error) 
 
 		dstFile, err := client.Create(remotePath)
 		if err != nil {
-			return fmt.Errorf("创建远程文件失败: %w", err)
+			return fmt.Errorf("failed to create remote file: %w", err)
 		}
 		defer func() {
 			if err := dstFile.Close(); err != nil {
@@ -169,7 +169,7 @@ func handleUploadFile(ctx context.Context, args map[string]any) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf(`{"message":"文件上传成功","remote_path":"%s"}`, remotePath), nil
+	return fmt.Sprintf(`{"message":"file uploaded successfully","remote_path":"%s"}`, remotePath), nil
 }
 
 func handleDownloadFile(ctx context.Context, args map[string]any) (string, error) {
@@ -177,7 +177,7 @@ func handleDownloadFile(ctx context.Context, args map[string]any) (string, error
 	remotePath := argString(args, "remote_path")
 	localPath := argString(args, "local_path")
 	if assetID == 0 || remotePath == "" || localPath == "" {
-		return "", fmt.Errorf("缺少必要参数 (asset_id, remote_path, local_path)")
+		return "", fmt.Errorf("missing required parameters: asset_id, remote_path, local_path")
 	}
 
 	_, sshCfg, password, key, err := resolveAssetSSH(ctx, assetID)
@@ -188,7 +188,7 @@ func handleDownloadFile(ctx context.Context, args map[string]any) (string, error
 	err = executeWithSFTP(sshCfg, password, key, func(client *sftp.Client) error {
 		srcFile, err := client.Open(remotePath)
 		if err != nil {
-			return fmt.Errorf("打开远程文件失败: %w", err)
+			return fmt.Errorf("failed to open remote file: %w", err)
 		}
 		defer func() {
 			if err := srcFile.Close(); err != nil {
@@ -198,7 +198,7 @@ func handleDownloadFile(ctx context.Context, args map[string]any) (string, error
 
 		dstFile, err := os.Create(localPath) //nolint:gosec
 		if err != nil {
-			return fmt.Errorf("创建本地文件失败: %w", err)
+			return fmt.Errorf("failed to create local file: %w", err)
 		}
 		defer func() {
 			if err := dstFile.Close(); err != nil {
@@ -212,5 +212,5 @@ func handleDownloadFile(ctx context.Context, args map[string]any) (string, error
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf(`{"message":"文件下载成功","local_path":"%s"}`, localPath), nil
+	return fmt.Sprintf(`{"message":"file downloaded successfully","local_path":"%s"}`, localPath), nil
 }

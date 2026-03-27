@@ -107,7 +107,7 @@ func handleListAssets(ctx context.Context, args map[string]any) (string, error) 
 	data, err := json.Marshal(views)
 	if err != nil {
 		logger.Default().Error("marshal asset list", zap.Error(err))
-		return "", fmt.Errorf("序列化资产列表失败: %w", err)
+		return "", fmt.Errorf("failed to marshal asset list: %w", err)
 	}
 	return string(data), nil
 }
@@ -115,16 +115,16 @@ func handleListAssets(ctx context.Context, args map[string]any) (string, error) 
 func handleGetAsset(ctx context.Context, args map[string]any) (string, error) {
 	id := argInt64(args, "id")
 	if id == 0 {
-		return "", fmt.Errorf("缺少参数 id")
+		return "", fmt.Errorf("missing required parameter: id")
 	}
 	asset, err := asset_svc.Asset().Get(ctx, id)
 	if err != nil {
-		return "", fmt.Errorf("资产不存在: %w", err)
+		return "", fmt.Errorf("asset not found: %w", err)
 	}
 	data, err := json.Marshal(toSafeView(asset))
 	if err != nil {
 		logger.Default().Error("marshal asset detail", zap.Error(err))
-		return "", fmt.Errorf("序列化资产详情失败: %w", err)
+		return "", fmt.Errorf("failed to marshal asset detail: %w", err)
 	}
 	return string(data), nil
 }
@@ -135,7 +135,7 @@ func handleAddAsset(ctx context.Context, args map[string]any) (string, error) {
 	port := argInt(args, "port")
 	username := argString(args, "username")
 	if name == "" || host == "" || port == 0 || username == "" {
-		return "", fmt.Errorf("缺少必要参数 (name, host, port, username)")
+		return "", fmt.Errorf("missing required parameters: name, host, port, username")
 	}
 
 	assetType := argString(args, "type")
@@ -172,7 +172,7 @@ func handleAddAsset(ctx context.Context, args map[string]any) (string, error) {
 	case asset_entity.AssetTypeDatabase:
 		driver := asset_entity.DatabaseDriver(argString(args, "driver"))
 		if driver == "" {
-			return "", fmt.Errorf("数据库类型必须指定 driver (mysql 或 postgresql)")
+			return "", fmt.Errorf("database type requires driver parameter (mysql or postgresql)")
 		}
 		dbCfg := &asset_entity.DatabaseConfig{
 			Driver:     driver,
@@ -197,24 +197,24 @@ func handleAddAsset(ctx context.Context, args map[string]any) (string, error) {
 			logger.Default().Warn("set Redis config for new asset", zap.Error(err))
 		}
 	default:
-		return "", fmt.Errorf("不支持的资产类型: %s", assetType)
+		return "", fmt.Errorf("unsupported asset type: %s", assetType)
 	}
 
 	if err := asset_svc.Asset().Create(ctx, asset); err != nil {
-		return "", fmt.Errorf("创建资产失败: %w", err)
+		return "", fmt.Errorf("failed to create asset: %w", err)
 	}
-	return fmt.Sprintf(`{"id":%d,"message":"资产创建成功"}`, asset.ID), nil
+	return fmt.Sprintf(`{"id":%d,"message":"asset created successfully"}`, asset.ID), nil
 }
 
 func handleUpdateAsset(ctx context.Context, args map[string]any) (string, error) {
 	id := argInt64(args, "id")
 	if id == 0 {
-		return "", fmt.Errorf("缺少参数 id")
+		return "", fmt.Errorf("missing required parameter: id")
 	}
 
 	asset, err := asset_svc.Asset().Get(ctx, id)
 	if err != nil {
-		return "", fmt.Errorf("资产不存在: %w", err)
+		return "", fmt.Errorf("asset not found: %w", err)
 	}
 
 	if name := argString(args, "name"); name != "" {
@@ -294,15 +294,15 @@ func handleUpdateAsset(ctx context.Context, args map[string]any) (string, error)
 	}
 
 	if err := asset_svc.Asset().Update(ctx, asset); err != nil {
-		return "", fmt.Errorf("更新资产失败: %w", err)
+		return "", fmt.Errorf("failed to update asset: %w", err)
 	}
-	return `{"message":"资产更新成功"}`, nil
+	return `{"message":"asset updated successfully"}`, nil
 }
 
 func handleListGroups(ctx context.Context, _ map[string]any) (string, error) {
 	groups, err := group_repo.Group().List(ctx)
 	if err != nil {
-		return "", fmt.Errorf("获取分组失败: %w", err)
+		return "", fmt.Errorf("failed to list groups: %w", err)
 	}
 	views := make([]safeGroupListView, len(groups))
 	for i, g := range groups {
@@ -317,7 +317,7 @@ func handleListGroups(ctx context.Context, _ map[string]any) (string, error) {
 	data, err := json.Marshal(views)
 	if err != nil {
 		logger.Default().Error("marshal group list", zap.Error(err))
-		return "", fmt.Errorf("序列化分组列表失败: %w", err)
+		return "", fmt.Errorf("failed to marshal group list: %w", err)
 	}
 	return string(data), nil
 }
@@ -325,11 +325,11 @@ func handleListGroups(ctx context.Context, _ map[string]any) (string, error) {
 func handleGetGroup(ctx context.Context, args map[string]any) (string, error) {
 	id := argInt64(args, "id")
 	if id == 0 {
-		return "", fmt.Errorf("缺少参数 id")
+		return "", fmt.Errorf("missing required parameter: id")
 	}
 	group, err := group_repo.Group().Find(ctx, id)
 	if err != nil {
-		return "", fmt.Errorf("分组不存在: %w", err)
+		return "", fmt.Errorf("group not found: %w", err)
 	}
 	view := safeGroupDetailView{
 		safeGroupListView: safeGroupListView{
@@ -344,7 +344,7 @@ func handleGetGroup(ctx context.Context, args map[string]any) (string, error) {
 	data, err := json.Marshal(view)
 	if err != nil {
 		logger.Default().Error("marshal group detail", zap.Error(err))
-		return "", fmt.Errorf("序列化分组详情失败: %w", err)
+		return "", fmt.Errorf("failed to marshal group detail: %w", err)
 	}
 	return string(data), nil
 }

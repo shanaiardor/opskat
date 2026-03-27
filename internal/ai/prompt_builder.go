@@ -72,7 +72,9 @@ You are proactive, thorough, and safety-conscious. Always verify before destruct
 func (b *PromptBuilder) buildLanguageHint() string {
 	switch b.language {
 	case "zh-cn":
-		return "请使用中文回复用户。"
+		return "The user's preferred language is Chinese (Simplified). Always respond in Chinese."
+	case "en":
+		return "The user's preferred language is English. Always respond in English."
 	default:
 		return "Respond in the same language the user uses."
 	}
