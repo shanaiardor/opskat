@@ -9,6 +9,7 @@ import { AssetTree } from "@/components/layout/AssetTree";
 import { MainPanel } from "@/components/layout/MainPanel";
 import { ConversationListPanel } from "@/components/ai/ConversationListPanel";
 import { WindowControls } from "@/components/layout/WindowControls";
+import { EdgeRevealStrip } from "@/components/layout/EdgeRevealStrip";
 import { AssetForm } from "@/components/asset/AssetForm";
 import { GroupDialog } from "@/components/asset/GroupDialog";
 import { PermissionDialog } from "@/components/ai/PermissionDialog";
@@ -309,6 +310,7 @@ function App() {
         <TooltipProvider>
           <div className="flex h-screen w-screen overflow-hidden bg-background">
             <WindowControls />
+            {sidebarHidden && <EdgeRevealStrip onClick={toggleSidebarHidden} />}
             {!sidebarHidden && (
               <Sidebar
                 activePage={activePage}
