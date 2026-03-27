@@ -42,7 +42,7 @@ type CheckResult struct {
 	Message        string   // 返回给 AI 的消息
 	HintRules      []string // 拒绝时的允许规则提示
 	DecisionSource string   // 决策来源（SourcePolicyAllow 等常量）
-	MatchedPattern string   // 匹配的命令模式
+	MatchedPattern string // 匹配的命令模式
 }
 
 // DecisionString 返回决策的字符串表示（用于审计日志存储）
@@ -74,16 +74,18 @@ func setCheckResult(ctx context.Context, result CheckResult) {
 }
 
 // CommandConfirmFunc 命令确认回调，发送审批请求并阻塞等待前端响应
+// ctx 携带会话 ID 等上下文（通过 GetConversationID 获取）
 // kind: "single", "batch", "grant"
 // items: 审批项列表
 // agentRole: 子 agent 角色（可为空）
 // 返回 ApprovalResponse
-type CommandConfirmFunc func(kind string, items []ApprovalItem, agentRole string) ApprovalResponse
+type CommandConfirmFunc func(ctx context.Context, kind string, items []ApprovalItem, agentRole string) ApprovalResponse
 
 // GrantRequestFunc Grant 审批回调，创建 grant 并等待用户审批
+// ctx 携带会话 ID 等上下文（通过 GetConversationID 获取）
 // items 为多资产的审批条目列表，用户可能在审批弹窗中编辑
 // 返回 (approved, 用户编辑后的 patterns)
-type GrantRequestFunc func(items []ApprovalItem, reason string) (approved bool, finalPatterns []string)
+type GrantRequestFunc func(ctx context.Context, items []ApprovalItem, reason string) (approved bool, finalPatterns []string)
 
 // ApprovedPattern 会话级已批准的命令模式
 type ApprovedPattern struct {
@@ -150,9 +152,9 @@ func (c *CommandPolicyChecker) SubmitGrant(ctx context.Context, assetID int64, p
 		})
 	}
 
-	approved, finalPatterns := c.grantRequestFunc(items, reason)
+	approved, finalPatterns := c.grantRequestFunc(ctx, items, reason)
 	if !approved {
-		return CheckResult{Decision: Deny, Message: policyMsg(ctx, "user denied grant approval", "用户拒绝 Grant 审批"), DecisionSource: SourceGrantDeny, MatchedPattern: strings.Join(patterns, "; ")}
+		return CheckResult{Decision: Deny, Message: policyMsg(ctx, "USER DENIED: The user has denied the grant approval request. Stop the current task immediately.", "用户拒绝：用户已拒绝 Grant 审批请求。请立即停止当前任务。"), DecisionSource: SourceGrantDeny, MatchedPattern: strings.Join(patterns, "; ")}
 	}
 
 	return CheckResult{Decision: Allow, Message: policyFmt(ctx, "grant approved, %d patterns", "Grant 已批准，共 %d 条模式", len(finalPatterns)), DecisionSource: SourceGrantAllow, MatchedPattern: strings.Join(finalPatterns, "; ")}
@@ -195,9 +197,9 @@ func (c *CommandPolicyChecker) SubmitGrantMulti(ctx context.Context, items []Gra
 		}
 	}
 
-	approved, finalPatterns := c.grantRequestFunc(approvalItems, reason)
+	approved, finalPatterns := c.grantRequestFunc(ctx, approvalItems, reason)
 	if !approved {
-		return CheckResult{Decision: Deny, Message: policyMsg(ctx, "user denied grant approval", "用户拒绝 Grant 审批"), DecisionSource: SourceGrantDeny, MatchedPattern: strings.Join(allPatterns, "; ")}
+		return CheckResult{Decision: Deny, Message: policyMsg(ctx, "USER DENIED: The user has denied the grant approval request. Stop the current task immediately.", "用户拒绝：用户已拒绝 Grant 审批请求。请立即停止当前任务。"), DecisionSource: SourceGrantDeny, MatchedPattern: strings.Join(allPatterns, "; ")}
 	}
 
 	return CheckResult{Decision: Allow, Message: policyFmt(ctx, "grant approved, %d patterns", "Grant 已批准，共 %d 条模式", len(finalPatterns)), DecisionSource: SourceGrantAllow, MatchedPattern: strings.Join(finalPatterns, "; ")}
@@ -334,10 +336,10 @@ func (c *CommandPolicyChecker) handleConfirm(ctx context.Context, assetID int64,
 	}}
 	agentRole := GetAgentRole(ctx)
 
-	resp := c.confirmFunc("single", items, agentRole)
+	resp := c.confirmFunc(ctx, "single", items, agentRole)
 
 	if resp.Decision == "deny" {
-		return CheckResult{Decision: Deny, Message: policyFmt(ctx, "user denied execution: %s", "用户拒绝执行: %s", command), DecisionSource: SourceUserDeny}
+		return CheckResult{Decision: Deny, Message: policyFmt(ctx, "USER DENIED: The user has denied execution of command: %s. Stop the current task immediately.", "用户拒绝：用户已拒绝执行命令: %s。请立即停止当前任务。", command), DecisionSource: SourceUserDeny}
 	}
 	if resp.Decision == "allowAll" {
 		sessionID := GetSessionID(ctx)

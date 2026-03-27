@@ -455,7 +455,7 @@
     "replaceWarning": "Replace mode will delete all existing data in selected modules. This cannot be undone!"
   },
   "setup": {
-    "title": "Configure AI Provider",
+    "title": "Configure AI Assistant",
     "subtitle": "Choose a method to start using the AI assistant",
     "openAIDesc": "Use an OpenAI-compatible API endpoint",
     "recommended": "Recommended",
@@ -467,8 +467,14 @@
     "config": "Configuration",
     "selectProviderType": "Select Provider Type",
     "openAICompatible": "OpenAI Compatible",
-    "openAICompatibleDesc": "Works with OpenAI, DeepSeek, and other compatible APIs",
-    "anthropicDesc": "Anthropic Claude API"
+    "openAICompatibleDesc": "Works with OpenAI, DeepSeek, and other major APIs",
+    "anthropicDesc": "Anthropic Claude series model API",
+    "opsctlBannerTitle": "Use via opsctl Plugin",
+    "opsctlBannerDesc": "Install the opsctl CLI and enable the AI Skill plugin to manage and operate your server assets directly from Claude Code, Codex, and other AI coding tools.",
+    "goToSettings": "Go to Settings",
+    "selectProvider": "Select AI Provider",
+    "configureProvider": "Configure {{provider}}",
+    "settingsHint": "You can manage and switch AI providers later in Settings"
   },
   "ai": {
     "title": "AI Assistant",
@@ -494,6 +500,7 @@
     "approvalDenyAll": "Deny All",
     "approvalAllowAll": "Allow All",
     "approvalDenied": "Denied",
+    "approvalReasonLabel": "Reason: ",
     "permissionRequestHint": "AI is requesting command execution permission. You can edit the pattern before approving.",
     "permissionPatternPlaceholder": "Command pattern, supports * wildcard",
     "permissionApprove": "Approve",

@@ -10,8 +10,8 @@ OpsKat
 <p align="center">AI 优先的桌面运维工具。描述你的需求，AI Agent 代你执行，每一步都有策略管控和完整审计日志。</p>
 
 <p align="center">
-<a href="https://opskat.com">官网</a> ·
-<a href="https://docs.opskat.com">文档</a> ·
+<a href="https://opskat.github.io/">官网</a> ·
+<a href="https://opskat.github.io/docs/getting-started/installation">文档</a> ·
 <a href="https://github.com/opskat/opskat/releases">下载</a>
 </p>
 

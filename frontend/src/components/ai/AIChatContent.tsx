@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { useIMEComposing } from "@/hooks/useIMEComposing";
-import { Bot, Loader2, CornerDownLeft, Settings2 } from "lucide-react";
+import { Loader2, CornerDownLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAIStore, useAISendOnEnter, type ChatMessage, type ContentBlock } from "@/stores/aiStore";
@@ -17,18 +18,21 @@ interface AIChatContentProps {
 }
 
 /** Split blocks into segments: consecutive non-approval blocks form a 'bubble' segment,
- *  each approval block becomes its own 'approval' segment. */
+ *  each pending approval block becomes its own 'approval' segment.
+ *  Resolved (non-pending) approval blocks are skipped so surrounding content merges into one bubble. */
 function splitBlocksByApproval(blocks: ContentBlock[]): Array<{ type: "bubble" | "approval"; blocks: ContentBlock[] }> {
   const segments: Array<{ type: "bubble" | "approval"; blocks: ContentBlock[] }> = [];
   let currentBubble: ContentBlock[] = [];
 
   for (const block of blocks) {
-    if (block.type === "approval") {
+    if (block.type === "approval" && block.status === "pending_confirm") {
       if (currentBubble.length > 0) {
         segments.push({ type: "bubble", blocks: currentBubble });
         currentBubble = [];
       }
       segments.push({ type: "approval", blocks: [block] });
+    } else if (block.type === "approval") {
+      // Resolved approval — skip, don't split
     } else {
       currentBubble.push(block);
     }
@@ -47,7 +51,6 @@ export function AIChatContent({ tabId }: AIChatContentProps) {
     sending: false,
   };
   const { messages, sending } = tabState;
-  const modelName = useAIStore((s) => s.modelName);
 
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -92,23 +95,6 @@ export function AIChatContent({ tabId }: AIChatContentProps) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Chat Header */}
-      <div className="flex items-center justify-between px-5 h-12 border-b shrink-0">
-        <div className="flex items-center gap-2.5">
-          <Bot className="h-[18px] w-[18px] text-primary" />
-          <span className="text-sm font-semibold">{t("ai.title")}</span>
-          {modelName && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 h-[22px] text-[11px] text-muted-foreground">
-              <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-              {modelName}
-            </span>
-          )}
-        </div>
-        <Button variant="ghost" size="icon" className="h-8 w-8">
-          <Settings2 className="h-4 w-4 text-muted-foreground" />
-        </Button>
-      </div>
-
       {/* Messages */}
       <ScrollArea className="flex-1 min-h-0 overflow-hidden">
         <div className="max-w-3xl mx-auto p-4 space-y-6">
@@ -221,8 +207,8 @@ function AssistantMessage({ msg }: { msg: ChatMessage }) {
   return (
     <div className="flex flex-col items-start gap-1.5">
       <span className="text-xs font-semibold text-primary tracking-wide">Assistant</span>
-      <div className="rounded-xl rounded-bl-sm bg-muted px-3.5 py-2.5 max-w-[95%] min-w-0 overflow-hidden break-words prose prose-sm dark:prose-invert prose-p:my-1 prose-pre:my-1 prose-pre:overflow-x-auto shadow-sm">
-        <Markdown rehypePlugins={[rehypeSanitize]}>{msg.content}</Markdown>
+      <div className="rounded-xl rounded-bl-sm bg-muted px-3.5 py-2.5 max-w-[95%] min-w-0 overflow-hidden break-words prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-1 prose-pre:overflow-x-auto shadow-sm">
+        <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>{msg.content}</Markdown>
         {msg.streaming && <Loader2 className="h-3 w-3 animate-spin inline-block ml-1" />}
       </div>
     </div>
@@ -234,8 +220,8 @@ function BubbleSegment({ blocks, streaming }: { blocks: ContentBlock[]; streamin
     <div className="rounded-xl rounded-bl-sm bg-muted px-3.5 py-3 max-w-[95%] min-w-0 overflow-hidden shadow-sm space-y-2">
       {blocks.map((block, idx) =>
         block.type === "text" ? (
-          <div key={idx} className="prose prose-sm dark:prose-invert prose-p:my-1 prose-pre:my-1 overflow-x-auto break-words">
-            <Markdown rehypePlugins={[rehypeSanitize]}>{block.content}</Markdown>
+          <div key={idx} className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-1 overflow-x-auto break-words">
+            <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>{block.content}</Markdown>
           </div>
         ) : block.type === "agent" ? (
           <AgentBlock key={idx} block={block} />

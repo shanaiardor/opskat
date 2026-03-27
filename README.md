@@ -10,8 +10,8 @@ OpsKat
 <p align="center">An AI-first desktop application for managing remote infrastructure. Describe what you need — the AI agent handles the rest, with policy enforcement and full audit logging.</p>
 
 <p align="center">
-<a href="https://opskat.com">Website</a> ·
-<a href="https://docs.opskat.com">Docs</a> ·
+<a href="https://opskat.github.io/">Website</a> ·
+<a href="https://opskat.github.io/docs/getting-started/installation">Docs</a> ·
 <a href="https://github.com/opskat/opskat/releases">Download</a>
 </p>
 

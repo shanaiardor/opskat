@@ -15,7 +15,6 @@ interface ApprovalBlockProps {
 export function ApprovalBlock({ block }: ApprovalBlockProps) {
   const { t } = useTranslation();
   const isPending = block.status === "pending_confirm";
-  const isDenied = block.status === "error";
   const items = block.approvalItems || [];
   const kind = block.approvalKind || "single";
 
@@ -28,6 +27,9 @@ export function ApprovalBlock({ block }: ApprovalBlockProps) {
   });
 
   const [rememberMode, setRememberMode] = useState(false);
+
+  // 确认/拒绝后不再显示
+  if (!isPending) return null;
 
   const respond = (decision: string) => {
     if (!block.confirmId) return;
@@ -53,12 +55,12 @@ export function ApprovalBlock({ block }: ApprovalBlockProps) {
   };
 
   return (
-    <div className="my-2 rounded-xl border border-amber-500/25 bg-amber-950/60 p-4 space-y-3 text-xs overflow-hidden">
+    <div className="my-2 rounded-[10px] border border-[#F59E0B40] bg-[#2D2410] p-4 space-y-3 text-xs overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <ShieldAlert className="h-4 w-4 shrink-0 text-amber-500" />
-          <span className="font-semibold text-sm text-amber-500">
+          <span className="font-semibold text-[13px] text-amber-500">
             {kind === "grant"
               ? t("ai.approvalGrantTitle")
               : kind === "batch"
@@ -71,69 +73,74 @@ export function ApprovalBlock({ block }: ApprovalBlockProps) {
             </span>
           )}
         </div>
-        <div>
-          {isPending && (
-            <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-500">
-              {t("ai.approvalPending", "等待确认")}
-            </span>
-          )}
-          {!isPending && !isDenied && (
-            <span className="rounded-full bg-green-500/20 px-2 py-0.5 text-[10px] font-semibold text-green-500">
-              {t("ai.approvalApproved")}
-            </span>
-          )}
-          {isDenied && (
-            <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-[10px] font-semibold text-red-500">
-              {t("ai.approvalDenied", "已拒绝")}
-            </span>
-          )}
-        </div>
+        <span className="inline-flex items-center rounded-full bg-[#F59E0B20] h-5 px-2 text-[10px] font-semibold text-amber-500">
+          {t("ai.approvalPending", "等待确认")}
+        </span>
       </div>
-
-      {/* Description (grant only) */}
-      {block.approvalDescription && (
-        <div className="text-xs text-amber-200/70">{block.approvalDescription}</div>
-      )}
 
       {/* Items */}
       <div className="space-y-2">
-        {items.map((item, i) => (
-          <div key={i} className="rounded-lg bg-amber-950/80 p-3 space-y-2">
-            <div className="flex items-center gap-2">
-              {kind === "grant" ? (
-                <ScopeBadge item={item} />
-              ) : (
-                <>
-                  <TypeBadge type={item.type} />
-                  {item.asset_name && (
-                    <span className="text-amber-200/70">{item.asset_name}</span>
-                  )}
-                </>
-              )}
-            </div>
-            {kind === "grant" && isPending ? (
-              <Textarea
-                value={editedCommands[i] || ""}
-                onChange={(e) =>
-                  setEditedCommands((prev) => ({ ...prev, [i]: e.target.value }))
-                }
-                className="font-mono text-[11px] min-h-[32px] resize-y bg-black/30 border-amber-500/20"
-                rows={Math.max(1, (editedCommands[i] || "").split("\n").length)}
-              />
-            ) : (
-              <div className="rounded-md bg-black/30 p-2">
-                <code className="block font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-all">
+        {items.map((item, i) =>
+          kind === "batch" ? (
+            <div key={i} className="rounded-lg bg-[#1E1A0E] p-2.5 space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <TypeBadge type={item.type} compact />
+                {item.asset_name && (
+                  <span className="text-[11px] text-[#D4A94E]">{item.asset_name}</span>
+                )}
+              </div>
+              <div className="rounded bg-[#16120B] px-2 py-[5px]">
+                <code className="block font-mono text-[10px] text-muted-foreground whitespace-pre-wrap break-all">
                   {item.command}
                 </code>
               </div>
-            )}
-          </div>
-        ))}
+            </div>
+          ) : (
+            <div key={i} className="rounded-lg bg-[#1E1A0E] p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                {kind === "grant" ? (
+                  <ScopeBadge item={item} />
+                ) : (
+                  <>
+                    <TypeBadge type={item.type} />
+                    {item.asset_name && (
+                      <span className="text-xs text-[#D4A94E]">{item.asset_name}</span>
+                    )}
+                  </>
+                )}
+              </div>
+              {kind === "grant" ? (
+                <Textarea
+                  value={editedCommands[i] || ""}
+                  onChange={(e) =>
+                    setEditedCommands((prev) => ({ ...prev, [i]: e.target.value }))
+                  }
+                  className="font-mono text-[11px] min-h-[32px] resize-y bg-background border-border"
+                  rows={Math.max(1, (editedCommands[i] || "").split("\n").length)}
+                />
+              ) : (
+                <div className="rounded-md bg-[#16120B] px-2.5 py-2">
+                  <code className="block font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-all">
+                    {item.command}
+                  </code>
+                </div>
+              )}
+            </div>
+          )
+        )}
       </div>
 
+      {/* Reason (grant only, before buttons) */}
+      {kind === "grant" && block.approvalDescription && (
+        <div className="flex gap-1.5">
+          <span className="text-[11px] font-medium text-[#D4A94E] shrink-0">{t("ai.approvalReasonLabel")}</span>
+          <span className="text-[11px] text-muted-foreground">{block.approvalDescription}</span>
+        </div>
+      )}
+
       {/* Remember mode pattern editor (single only) */}
-      {kind === "single" && isPending && rememberMode && (
-        <div className="space-y-1 pt-0.5">
+      {kind === "single" && rememberMode && (
+        <div className="space-y-1.5 pt-0.5">
           <div className="text-[10px] text-muted-foreground">{t("opsctlApproval.patternLabel")}</div>
           {items.map((_item, i) => (
             <Input
@@ -142,7 +149,7 @@ export function ApprovalBlock({ block }: ApprovalBlockProps) {
               onChange={(e) =>
                 setEditedCommands((prev) => ({ ...prev, [i]: e.target.value }))
               }
-              className="font-mono text-[11px] h-7 bg-black/30 border-amber-500/20"
+              className="font-mono text-[11px] h-8 bg-background border-border"
               placeholder={t("opsctlApproval.patternPlaceholder")}
             />
           ))}
@@ -151,54 +158,52 @@ export function ApprovalBlock({ block }: ApprovalBlockProps) {
       )}
 
       {/* Action buttons */}
-      {isPending && (
-        <div className="flex justify-end gap-2 pt-1">
+      <div className="flex justify-end gap-2 pt-1">
           {kind === "batch" ? (
             <>
-              <Button size="sm" variant="outline" className="h-8 px-3 text-xs" onClick={() => respond("deny")}>
+              <Button size="sm" variant="outline" className="h-8 rounded-md px-4 text-xs border-[#F59E0B40] text-[#D4A94E] hover:bg-[#F59E0B10] hover:text-[#D4A94E]" onClick={() => respond("deny")}>
                 {t("ai.approvalDenyAll")}
               </Button>
-              <Button size="sm" className="h-8 px-3 text-xs bg-amber-500 hover:bg-amber-600 text-amber-950" onClick={() => respond("allow")}>
+              <Button size="sm" className="h-8 rounded-md px-4 text-xs bg-amber-500 hover:bg-amber-600 text-[#1A1400] font-semibold" onClick={() => respond("allow")}>
                 {t("ai.approvalAllowAll")}
               </Button>
             </>
           ) : kind === "grant" ? (
             <>
-              <Button size="sm" variant="outline" className="h-8 px-3 text-xs" onClick={() => respond("deny")}>
+              <Button size="sm" variant="outline" className="h-8 rounded-md px-4 text-xs border-[#F59E0B40] text-[#D4A94E] hover:bg-[#F59E0B10] hover:text-[#D4A94E]" onClick={() => respond("deny")}>
                 {t("ai.approvalDeny")}
               </Button>
-              <Button size="sm" className="h-8 px-3 text-xs bg-amber-500 hover:bg-amber-600 text-amber-950" onClick={() => respond("allow")}>
+              <Button size="sm" className="h-8 rounded-md px-4 text-xs bg-amber-500 hover:bg-amber-600 text-[#1A1400] font-semibold" onClick={() => respond("allow")}>
                 {t("ai.approvalApprove")}
               </Button>
             </>
           ) : (
             <>
-              <Button size="sm" variant="outline" className="h-8 px-3 text-xs" onClick={() => respond("deny")}>
+              <Button size="sm" variant="outline" className="h-8 rounded-md px-4 text-xs border-[#F59E0B40] text-[#D4A94E] hover:bg-[#F59E0B10] hover:text-[#D4A94E]" onClick={() => respond("deny")}>
                 {t("ai.approvalDeny")}
               </Button>
               {rememberMode ? (
-                <Button size="sm" variant="secondary" className="h-8 px-3 text-xs" onClick={() => respond("allowAll")}>
+                <Button size="sm" className="h-8 rounded-md px-4 text-xs bg-[#3D3520] text-[#D4A94E] hover:bg-[#4D4530]" onClick={() => respond("allowAll")}>
                   {t("ai.approvalRememberAndAllow")}
                 </Button>
               ) : (
-                <Button size="sm" variant="secondary" className="h-8 px-3 text-xs" onClick={() => {
+                <Button size="sm" className="h-8 rounded-md px-4 text-xs bg-[#3D3520] text-[#D4A94E] hover:bg-[#4D4530]" onClick={() => {
                   setRememberMode(true);
                 }}>
                   {t("opsctlApproval.remember")}
                 </Button>
               )}
-              <Button size="sm" className="h-8 px-3 text-xs bg-amber-500 hover:bg-amber-600 text-amber-950" onClick={() => respond("allow")}>
+              <Button size="sm" className="h-8 rounded-md px-4 text-xs bg-amber-500 hover:bg-amber-600 text-[#1A1400] font-semibold" onClick={() => respond("allow")}>
                 {rememberMode ? t("ai.approvalOnlyOnce") : t("ai.approvalAllow")}
               </Button>
             </>
           )}
         </div>
-      )}
     </div>
   );
 }
 
-function TypeBadge({ type }: { type: string }) {
+function TypeBadge({ type, compact }: { type: string; compact?: boolean }) {
   const icons: Record<string, typeof Terminal> = {
     exec: Terminal,
     sql: Database,
@@ -206,8 +211,16 @@ function TypeBadge({ type }: { type: string }) {
     grant: Globe,
   };
   const Icon = icons[type] || Terminal;
+  if (compact) {
+    return (
+      <span className="inline-flex items-center gap-[3px] rounded-[3px] border border-[#F59E0B30] h-[18px] px-[5px] text-[8px] font-bold text-[#D4A94E] bg-background">
+        <Icon className="h-[11px] w-[11px]" />
+        {type.toUpperCase()}
+      </span>
+    );
+  }
   return (
-    <span className="inline-flex items-center gap-0.5 rounded border border-amber-500/30 px-1 py-0.5 text-[10px] font-medium text-amber-200/70 bg-black/20">
+    <span className="inline-flex items-center gap-1 rounded border border-[#F59E0B30] h-5 px-1.5 text-[9px] font-bold text-[#D4A94E] bg-background">
       <Icon className="h-3 w-3" />
       {type.toUpperCase()}
     </span>
@@ -216,12 +229,12 @@ function TypeBadge({ type }: { type: string }) {
 
 function ScopeBadge({ item }: { item: { asset_id: number; asset_name: string; group_id?: number; group_name?: string } }) {
   const { t } = useTranslation();
-  const cls = "inline-flex items-center gap-1 rounded border border-amber-500/30 px-1.5 py-0.5 text-[10px] font-medium text-amber-200/70 bg-black/20";
+  const cls = "inline-flex items-center gap-[3px] rounded-[3px] border border-[#F59E0B30] h-[18px] px-[5px] text-[8px] font-semibold text-[#D4A94E] bg-background";
   if (item.asset_id > 0) {
-    return <span className={cls}><Server className="h-3 w-3" />{item.asset_name}</span>;
+    return <span className={cls}><Server className="h-[11px] w-[11px]" />{item.asset_name}</span>;
   }
   if (item.group_id && item.group_id > 0) {
-    return <span className={cls}><FolderOpen className="h-3 w-3" />{item.group_name}</span>;
+    return <span className={cls}><FolderOpen className="h-[11px] w-[11px]" />{item.group_name}</span>;
   }
-  return <span className={cls}><Globe className="h-3 w-3" />{t("opsctlApproval.scopeAll")}</span>;
+  return <span className={cls}><Globe className="h-[11px] w-[11px]" />{t("opsctlApproval.scopeAll")}</span>;
 }

@@ -455,7 +455,7 @@
     "replaceWarning": "覆盖模式将删除选中模块的所有现有数据，此操作不可恢复！"
   },
   "setup": {
-    "title": "配置 AI 提供商",
+    "title": "配置 AI 助手",
     "subtitle": "选择一种方式开始使用 AI 助手",
     "openAIDesc": "使用 OpenAI 兼容的 API 接口",
     "recommended": "推荐",
@@ -467,8 +467,14 @@
     "config": "配置",
     "selectProviderType": "选择提供商类型",
     "openAICompatible": "OpenAI 兼容",
-    "openAICompatibleDesc": "兼容 OpenAI、DeepSeek 等 API",
-    "anthropicDesc": "Anthropic Claude API"
+    "openAICompatibleDesc": "兼容 OpenAI、DeepSeek 等主流 API",
+    "anthropicDesc": "Anthropic Claude 系列模型 API",
+    "opsctlBannerTitle": "通过 opsctl 插件使用",
+    "opsctlBannerDesc": "安装 opsctl CLI 并启用 AI Skill 插件，即可在 Claude Code、Codex 等 AI 编程工具中直接管理和操作你的服务器资产。",
+    "goToSettings": "前往设置",
+    "selectProvider": "选择 AI 提供商",
+    "configureProvider": "配置 {{provider}}",
+    "settingsHint": "你可以稍后在设置中管理和切换 AI 提供商"
   },
   "ai": {
     "title": "AI 助手",
@@ -494,6 +500,7 @@
     "approvalDenyAll": "全部拒绝",
     "approvalAllowAll": "全部允许",
     "approvalDenied": "已拒绝",
+    "approvalReasonLabel": "原因：",
     "permissionRequestHint": "AI 正在申请命令执行权限，可编辑模式后批准",
     "permissionPatternPlaceholder": "命令模式，支持 * 通配符",
     "permissionApprove": "批准",

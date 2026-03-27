@@ -36,7 +36,7 @@ export function ToolBlock({ block }: ToolBlockProps) {
 
   return (
     <div
-      className={`my-1.5 rounded-lg border bg-muted/30 text-xs overflow-hidden ${
+      className={`my-1.5 rounded-lg border bg-background text-xs overflow-hidden ${
         isRunning ? "border-primary/30" : "border-border/60"
       }`}
     >
@@ -45,11 +45,13 @@ export function ToolBlock({ block }: ToolBlockProps) {
         onClick={() => hasOutput && setExpanded(!expanded)}
         disabled={!hasOutput}
       >
-        <ChevronRight
-          className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform duration-150 ${
-            expanded ? "rotate-90 opacity-100" : "opacity-50"
-          } ${!hasOutput ? "invisible" : ""}`}
-        />
+        {hasOutput && (
+          <ChevronRight
+            className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform duration-150 ${
+              expanded ? "rotate-90 opacity-100" : "opacity-50"
+            }`}
+          />
+        )}
         {isRunning ? (
           <Loader2 className="h-3.5 w-3.5 shrink-0 text-primary animate-spin" />
         ) : (
@@ -57,14 +59,14 @@ export function ToolBlock({ block }: ToolBlockProps) {
         )}
         <span className="font-medium text-foreground/80">{block.toolName}</span>
         {block.toolInput && (
-          <code className="min-w-0 break-all text-muted-foreground font-mono text-[11px] ml-0.5">
+          <code className="min-w-0 truncate text-muted-foreground font-mono text-[10px] ml-0.5">
             {block.toolInput}
           </code>
         )}
         <span className="ml-auto shrink-0">
-          {isError && <XCircle className="h-3 w-3 text-destructive/70" />}
+          {isError && <XCircle className="h-3.5 w-3.5 text-destructive/70" />}
           {!isRunning && !isError && hasOutput && (
-            <CheckCircle2 className="h-3 w-3 text-green-500/70" />
+            <CheckCircle2 className="h-3.5 w-3.5 text-green-500/70" />
           )}
         </span>
       </button>

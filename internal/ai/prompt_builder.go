@@ -52,6 +52,9 @@ func (b *PromptBuilder) Build() string {
 	// 5. 错误恢复引导
 	parts = append(parts, b.buildErrorRecoveryGuidance())
 
+	// 6. 用户拒绝操作引导
+	parts = append(parts, b.buildUserDenialGuidance())
+
 	return strings.Join(parts, "\n\n")
 }
 
@@ -110,4 +113,8 @@ func (b *PromptBuilder) buildKnowledgeGuidance() string {
 
 func (b *PromptBuilder) buildErrorRecoveryGuidance() string {
 	return `When a tool execution fails, analyze the error, and try a different approach. If repeated attempts fail, explain the issue to the user and suggest alternatives. Do not give up after a single failure.`
+}
+
+func (b *PromptBuilder) buildUserDenialGuidance() string {
+	return `IMPORTANT: When the user denies a command execution or permission request, you MUST immediately stop the current task. Do not attempt alternative commands, workarounds, or different approaches to achieve the same goal. Simply acknowledge the user's decision and ask if they need anything else. The user's denial is final and must be respected.`
 }

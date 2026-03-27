@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -287,8 +288,11 @@ func (a *App) RespondOpsctlApproval(confirmID string, resp ai.ApprovalResponse) 
 
 // makeCommandConfirmFunc 创建统一审批回调，向 AI 聊天流发送 approval_request 事件并阻塞等待
 func (a *App) makeCommandConfirmFunc() ai.CommandConfirmFunc {
-	return func(kind string, items []ai.ApprovalItem, agentRole string) ai.ApprovalResponse {
-		convID := a.currentConversationID
+	return func(ctx context.Context, kind string, items []ai.ApprovalItem, agentRole string) ai.ApprovalResponse {
+		convID := ai.GetConversationID(ctx)
+		if convID == 0 {
+			convID = a.currentConversationID // fallback
+		}
 		confirmID := fmt.Sprintf("ai_%d_%d", convID, time.Now().UnixNano())
 		eventName := fmt.Sprintf("ai:event:%d", convID)
 
@@ -325,8 +329,11 @@ func (a *App) makeCommandConfirmFunc() ai.CommandConfirmFunc {
 
 // makeGrantRequestFunc 创建 Grant 审批回调，使用 inline approval
 func (a *App) makeGrantRequestFunc() ai.GrantRequestFunc {
-	return func(items []ai.ApprovalItem, reason string) (bool, []string) {
-		convID := a.currentConversationID
+	return func(ctx context.Context, items []ai.ApprovalItem, reason string) (bool, []string) {
+		convID := ai.GetConversationID(ctx)
+		if convID == 0 {
+			convID = a.currentConversationID // fallback
+		}
 		confirmID := fmt.Sprintf("grant_%d_%d", convID, time.Now().UnixNano())
 		eventName := fmt.Sprintf("ai:event:%d", convID)
 

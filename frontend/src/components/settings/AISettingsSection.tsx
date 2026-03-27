@@ -3,17 +3,9 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,28 +32,24 @@ import {
   UpdateAIProvider,
   DeleteAIProvider,
   SetActiveAIProvider,
-  FetchAIModels,
-  GetModelDefaults,
 } from "../../../wailsjs/go/app/App";
 import { app } from "../../../wailsjs/go/models";
 import {
   Check,
   Loader2,
   ExternalLink,
-  RefreshCw,
   ChevronDown,
   ChevronUp,
   Info,
   FolderOpen,
   Pencil,
+  RefreshCw,
   Trash2,
   Plus,
-  ChevronsUpDown,
 } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
+import { AIProviderForm, type AIProviderFormValues } from "@/components/ai/AIProviderForm";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -357,11 +345,6 @@ function IntegrationSection() {
   );
 }
 
-function getDefaultApiBase(providerType: string): string {
-  if (providerType === "anthropic") return "https://api.anthropic.com";
-  return "https://api.openai.com/v1";
-}
-
 export function AISettingsSection() {
   const { t } = useTranslation();
   const [providers, setProviders] = useState<app.AIProviderInfo[]>([]);
@@ -369,21 +352,6 @@ export function AISettingsSection() {
   const [editingProvider, setEditingProvider] = useState<app.AIProviderInfo | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<app.AIProviderInfo | null>(null);
   const [saving, setSaving] = useState(false);
-
-  // Form fields
-  const [formName, setFormName] = useState("");
-  const [formType, setFormType] = useState("openai");
-  const [formApiBase, setFormApiBase] = useState("");
-  const [formApiKey, setFormApiKey] = useState("");
-  const [formModel, setFormModel] = useState("");
-  const [formMaxOutputTokens, setFormMaxOutputTokens] = useState(0);
-  const [formContextWindow, setFormContextWindow] = useState(0);
-
-  // Model combobox state
-  const [modelOptions, setModelOptions] = useState<app.AIModelInfo[]>([]);
-  const [modelPopoverOpen, setModelPopoverOpen] = useState(false);
-  const [modelSearch, setModelSearch] = useState("");
-  const [fetchingModels, setFetchingModels] = useState(false);
 
   const loadProviders = useCallback(async () => {
     try {
@@ -400,110 +368,38 @@ export function AISettingsSection() {
 
   const openAddDialog = () => {
     setEditingProvider(null);
-    setFormName("");
-    setFormType("openai");
-    setFormApiBase("");
-    setFormApiKey("");
-    setFormModel("");
-    setFormMaxOutputTokens(0);
-    setFormContextWindow(0);
-    setModelOptions([]);
     setDialogOpen(true);
   };
 
   const openEditDialog = (provider: app.AIProviderInfo) => {
     setEditingProvider(provider);
-    setFormName(provider.name);
-    setFormType(provider.type);
-    setFormApiBase(provider.apiBase);
-    setFormApiKey(provider.apiKey || "");
-    setFormModel(provider.model);
-    setFormMaxOutputTokens(provider.maxOutputTokens);
-    setFormContextWindow(provider.contextWindow);
-    setModelOptions([]);
     setDialogOpen(true);
   };
 
-  const handleFetchModels = async () => {
-    if (!formApiKey) {
-      toast.error(t("settings.apiKey") + " required");
-      return;
-    }
-    setFetchingModels(true);
-    try {
-      const models = await FetchAIModels(formType, formApiBase || getDefaultApiBase(formType), formApiKey);
-      setModelOptions(models || []);
-      if (models && models.length > 0) {
-        setModelPopoverOpen(true);
-      } else {
-        toast.info(t("settings.noModelsFound"));
-      }
-    } catch (e) {
-      toast.error(`${t("settings.fetchModelsError")}: ${errMsg(e)}`);
-    } finally {
-      setFetchingModels(false);
-    }
-  };
-
-  const handleSelectModel = (model: app.AIModelInfo) => {
-    setFormModel(model.id);
-    setModelPopoverOpen(false);
-    // 选择模型时自动填充默认参数
-    if (model.maxOutputTokens > 0) {
-      setFormMaxOutputTokens(model.maxOutputTokens);
-    }
-    if (model.contextWindow > 0) {
-      setFormContextWindow(model.contextWindow);
-    }
-    if (model.maxOutputTokens > 0 || model.contextWindow > 0) {
-      toast.info(t("settings.modelDefaultsApplied"));
-    }
-  };
-
-  // 当用户手动输入模型名称后，根据前缀匹配自动填充默认参数
-  const handleModelInputBlur = async () => {
-    if (!formModel) return;
-    try {
-      const defaults = await GetModelDefaults(formModel);
-      if (defaults) {
-        if (defaults.maxOutputTokens > 0) {
-          setFormMaxOutputTokens(defaults.maxOutputTokens);
-        }
-        if (defaults.contextWindow > 0) {
-          setFormContextWindow(defaults.contextWindow);
-        }
-        toast.info(t("settings.modelDefaultsApplied"));
-      }
-    } catch {
-      // 未知模型，忽略
-    }
-  };
-
-  const handleSave = async () => {
+  const handleSave = async (values: AIProviderFormValues) => {
     setSaving(true);
     try {
       if (editingProvider) {
         await UpdateAIProvider(
           editingProvider.id,
-          formName,
-          formType,
-          formApiBase,
-          formApiKey,
-          formModel,
-          formMaxOutputTokens,
-          formContextWindow
+          values.name,
+          values.type,
+          values.apiBase,
+          values.apiKey,
+          values.model,
+          values.maxOutputTokens,
+          values.contextWindow
         );
       } else {
         const created = await CreateAIProvider(
-          formName,
-          formType,
-          formApiBase,
-          formApiKey,
-          formModel,
-          formMaxOutputTokens,
-          formContextWindow
+          values.name,
+          values.type,
+          values.apiBase,
+          values.apiKey,
+          values.model,
+          values.maxOutputTokens,
+          values.contextWindow
         );
-        // If this is the first provider, set it as active
         if (providers.length === 0 && created.id) {
           await SetActiveAIProvider(created.id);
         }
@@ -538,10 +434,6 @@ export function AISettingsSection() {
       toast.error(errMsg(e));
     }
   };
-
-  const filteredModels = modelOptions.filter((m) =>
-    m.id.toLowerCase().includes(modelSearch.toLowerCase())
-  );
 
   return (
     <>
@@ -612,148 +504,28 @@ export function AISettingsSection() {
               {editingProvider ? t("settings.editProvider") : t("settings.addProvider")}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="grid gap-2">
-              <Label>{t("settings.providerName")}</Label>
-              <Input value={formName} onChange={(e) => setFormName(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label>{t("settings.providerType")}</Label>
-              <Select value={formType} onValueChange={setFormType}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="openai">{t("settings.openai")}</SelectItem>
-                  <SelectItem value="anthropic">{t("settings.anthropic")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label>{t("settings.apiBase")}</Label>
-              <Input
-                value={formApiBase}
-                onChange={(e) => setFormApiBase(e.target.value)}
-                placeholder={getDefaultApiBase(formType)}
-              />
-              <p className="text-xs text-muted-foreground">{t("settings.defaultApiBase")}</p>
-            </div>
-            <div className="grid gap-2">
-              <Label>{t("settings.apiKey")}</Label>
-              <Input
-                type="password"
-                value={formApiKey}
-                onChange={(e) => setFormApiKey(e.target.value)}
-                placeholder={editingProvider ? editingProvider.maskedApiKey : "sk-..."}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label>{t("settings.model")}</Label>
-              <div className="flex gap-2">
-                <Popover open={modelPopoverOpen} onOpenChange={setModelPopoverOpen}>
-                  <PopoverTrigger asChild>
-                    <div className="relative flex-1">
-                      <Input
-                        value={formModel}
-                        onChange={(e) => {
-                          setFormModel(e.target.value);
-                          setModelSearch(e.target.value);
-                          if (modelOptions.length > 0) setModelPopoverOpen(true);
-                        }}
-                        onBlur={handleModelInputBlur}
-                        placeholder={t("settings.selectModel")}
-                        className="pr-8"
-                      />
-                      {modelOptions.length > 0 && (
-                        <button
-                          type="button"
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                          onClick={() => setModelPopoverOpen(!modelPopoverOpen)}
-                        >
-                          <ChevronsUpDown className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  </PopoverTrigger>
-                  {modelOptions.length > 0 && (
-                    <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)]" align="start">
-                      <div className="p-2">
-                        <Input
-                          value={modelSearch}
-                          onChange={(e) => setModelSearch(e.target.value)}
-                          placeholder={t("settings.selectModel")}
-                          className="h-8 text-xs"
-                        />
-                      </div>
-                      <ScrollArea className="max-h-[200px]">
-                        <div className="p-1">
-                          {filteredModels.length === 0 ? (
-                            <p className="text-xs text-muted-foreground text-center py-2">
-                              {t("settings.noModelsFound")}
-                            </p>
-                          ) : (
-                            filteredModels.map((model) => (
-                              <button
-                                key={model.id}
-                                type="button"
-                                className="w-full text-left px-2 py-1.5 text-sm rounded-sm hover:bg-accent hover:text-accent-foreground flex items-center justify-between"
-                                onClick={() => handleSelectModel(model)}
-                              >
-                                <span className="truncate">{model.id}</span>
-                                {model.id === formModel && <Check className="h-3.5 w-3.5 shrink-0 ml-2" />}
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      </ScrollArea>
-                    </PopoverContent>
-                  )}
-                </Popover>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleFetchModels}
-                  disabled={fetchingModels || !formApiKey}
-                  className="shrink-0"
-                >
-                  {fetchingModels ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-3.5 w-3.5" />
-                  )}
-                  <span className="ml-1">{fetchingModels ? t("settings.fetchingModels") : t("settings.fetchModels")}</span>
-                </Button>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label>{t("settings.maxOutputTokens")}</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={formMaxOutputTokens}
-                  onChange={(e) => setFormMaxOutputTokens(parseInt(e.target.value) || 0)}
-                />
-                <p className="text-xs text-muted-foreground">{t("settings.maxOutputTokensHint")}</p>
-              </div>
-              <div className="grid gap-2">
-                <Label>{t("settings.contextWindow")}</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={formContextWindow}
-                  onChange={(e) => setFormContextWindow(parseInt(e.target.value) || 0)}
-                />
-                <p className="text-xs text-muted-foreground">{t("settings.contextWindowHint")}</p>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
-              {t("action.save")}
-            </Button>
-          </DialogFooter>
+          <AIProviderForm
+            key={editingProvider?.id ?? "new"}
+            initialValues={
+              editingProvider
+                ? {
+                    name: editingProvider.name,
+                    type: editingProvider.type,
+                    apiBase: editingProvider.apiBase,
+                    apiKey: editingProvider.apiKey || "",
+                    maskedApiKey: editingProvider.maskedApiKey,
+                    model: editingProvider.model,
+                    maxOutputTokens: editingProvider.maxOutputTokens,
+                    contextWindow: editingProvider.contextWindow,
+                  }
+                : undefined
+            }
+            isEditing={!!editingProvider}
+            showTypeSelector={true}
+            onSave={handleSave}
+            saving={saving}
+            submitLabel={t("action.save")}
+          />
         </DialogContent>
       </Dialog>
 

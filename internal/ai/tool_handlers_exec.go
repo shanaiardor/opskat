@@ -83,7 +83,7 @@ func handleRunCommand(ctx context.Context, args map[string]any) (string, error) 
 		result := checker.Check(ctx, assetID, command)
 		setCheckResult(ctx, result)
 		if result.Decision != Allow {
-			return result.Message, nil // 返回提示消息给 AI（非 error）
+			return result.Message, nil
 		}
 	}
 

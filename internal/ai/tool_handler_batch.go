@@ -111,7 +111,7 @@ func handleBatchCommand(ctx context.Context, args map[string]any) (string, error
 
 		if len(needConfirmItems) > 0 {
 			agentRole := GetAgentRole(ctx)
-			resp := checker.ConfirmFunc()("batch", needConfirmItems, agentRole)
+			resp := checker.ConfirmFunc()(ctx, "batch", needConfirmItems, agentRole)
 
 			for _, idx := range needConfirmIndices {
 				if resp.Decision == "deny" {
