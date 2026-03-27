@@ -13,8 +13,6 @@ import { AssetForm } from "@/components/asset/AssetForm";
 import { GroupDialog } from "@/components/asset/GroupDialog";
 import { PermissionDialog } from "@/components/ai/PermissionDialog";
 import { OpsctlApprovalDialog } from "@/components/approval/OpsctlApprovalDialog";
-import { GrantApprovalDialog } from "@/components/approval/GrantApprovalDialog";
-import { BatchApprovalDialog } from "@/components/approval/BatchApprovalDialog";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 import { useAssetStore } from "@/stores/assetStore";
@@ -351,8 +349,6 @@ function App() {
           <GroupDialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen} editGroup={editingGroup} />
           <PermissionDialog />
           <OpsctlApprovalDialog />
-          <GrantApprovalDialog />
-          <BatchApprovalDialog />
           <Toaster richColors />
         </TooltipProvider>
       </ErrorBoundary>

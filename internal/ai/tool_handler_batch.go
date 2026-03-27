@@ -56,7 +56,7 @@ func handleBatchCommand(ctx context.Context, args map[string]any) (string, error
 		item      batchCommandItem
 		assetID   int64
 		assetName string
-		decision  string // "allow", "deny"
+		decision  string // "allow", "deny", "needConfirm"
 		denyMsg   string
 	}
 	var resolved []resolvedCmd
@@ -73,16 +73,16 @@ func handleBatchCommand(ctx context.Context, args map[string]any) (string, error
 		decision := "allow"
 		denyMsg := ""
 
-		// 使用 CheckForAsset 处理完整的权限检查流程（包含用户确认）
+		// 使用 CheckPermission 只做策略检查，不触发确认回调
 		if checker != nil {
-			result := checker.CheckForAsset(ctx, assetID, cmd.Type, cmd.Command)
+			result := CheckPermission(ctx, cmd.Type, assetID, cmd.Command)
 			switch result.Decision {
 			case Deny:
 				decision = "deny"
 				denyMsg = result.Message
+			case NeedConfirm:
+				decision = "needConfirm"
 			case Allow:
-				decision = "allow"
-			default:
 				decision = "allow"
 			}
 		}
@@ -93,13 +93,44 @@ func handleBatchCommand(ctx context.Context, args map[string]any) (string, error
 		})
 	}
 
+	// 收集需要确认的项，聚合后一次确认
+	if checker != nil && checker.ConfirmFunc() != nil {
+		var needConfirmItems []ApprovalItem
+		var needConfirmIndices []int
+		for i, r := range resolved {
+			if r.decision == "needConfirm" {
+				needConfirmItems = append(needConfirmItems, ApprovalItem{
+					Type:      r.item.Type,
+					AssetID:   r.assetID,
+					AssetName: r.assetName,
+					Command:   r.item.Command,
+				})
+				needConfirmIndices = append(needConfirmIndices, i)
+			}
+		}
+
+		if len(needConfirmItems) > 0 {
+			agentRole := GetAgentRole(ctx)
+			resp := checker.ConfirmFunc()("batch", needConfirmItems, agentRole)
+
+			for _, idx := range needConfirmIndices {
+				if resp.Decision == "deny" {
+					resolved[idx].decision = "deny"
+					resolved[idx].denyMsg = "user denied batch execution"
+				} else {
+					resolved[idx].decision = "allow"
+				}
+			}
+		}
+	}
+
 	// 分桶
 	var approved, denied []resolvedCmd
 	for _, r := range resolved {
 		switch r.decision {
 		case "allow":
 			approved = append(approved, r)
-		case "deny":
+		default:
 			denied = append(denied, r)
 		}
 	}

@@ -32,11 +32,6 @@ type SkillContent struct {
 	PluginMarketplaceJSON string // 插件内嵌的 marketplace.json（自引用，用于插件缓存目录）
 }
 
-// ConfirmResponse 命令确认响应
-type ConfirmResponse struct {
-	Behavior string // "allow" | "allowAll" | "deny"
-}
-
 // SSHConnectEvent SSH 异步连接进度事件
 type SSHConnectEvent struct {
 	Type        string   `json:"type"`                  // "progress" | "connected" | "error" | "auth_challenge" | "host_key_verify"
@@ -64,8 +59,8 @@ type App struct {
 	aiAgent                 *ai.Agent
 	githubAuthCancel        context.CancelFunc
 	permissionChan          chan ai.PermissionResponse // 前端权限响应 channel（CLI 工具用）
-	pendingConfirms         sync.Map                   // map[string]chan ConfirmResponse（run_command 确认用）
-	pendingApprovals        sync.Map                   // map[string]chan bool（opsctl 审批用）
+	pendingAIApprovals      sync.Map                   // map[string]chan ai.ApprovalResponse（AI 审批用）
+	pendingOpsctlApprovals  sync.Map                   // map[string]chan ai.ApprovalResponse（opsctl 审批用）
 	approvalServer          *approval.Server           // opsctl 审批 Unix socket 服务
 	sshPool                 *sshpool.Pool              // opsctl SSH 连接池
 	sshProxyServer          *sshpool.Server            // SSH 连接池 Unix socket 服务

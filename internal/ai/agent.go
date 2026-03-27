@@ -23,21 +23,21 @@ type ToolExecutor interface {
 // Agent AI 代理，管理对话循环和 tool 调度
 type Agent struct {
 	provider      Provider
-	executor      ToolExecutor
+	newExecutor   func() ToolExecutor // 每次 Chat 调用创建独立 executor，避免共享资源竞争
 	tools         []Tool
 	policyChecker *CommandPolicyChecker
 	config        AgentConfig
 }
 
-// NewAgent 创建 Agent
-func NewAgent(provider Provider, executor ToolExecutor, checker *CommandPolicyChecker, config AgentConfig) *Agent {
+// NewAgent 创建 Agent，newExecutor 工厂在每次 Chat 时生成独立 executor
+func NewAgent(provider Provider, newExecutor func() ToolExecutor, checker *CommandPolicyChecker, config AgentConfig) *Agent {
 	tools := config.Tools
 	if tools == nil {
 		tools = AllToolDefs()
 	}
 	return &Agent{
 		provider:      provider,
-		executor:      executor,
+		newExecutor:   newExecutor,
 		tools:         ToOpenAITools(tools),
 		policyChecker: checker,
 		config:        config,
@@ -56,8 +56,9 @@ func (a *Agent) GetPolicyChecker() *CommandPolicyChecker {
 
 // Chat 发起对话，处理 tool 调用循环，通过回调流式返回内容
 func (a *Agent) Chat(ctx context.Context, messages []Message, onEvent func(StreamEvent)) error {
-	// Chat 结束后关闭 executor 持有的资源（如缓存的 SSH 连接）
-	if closer, ok := a.executor.(io.Closer); ok {
+	// 每次 Chat 创建独立 executor，结束后关闭其持有的资源（如缓存的 SSH 连接）
+	executor := a.newExecutor()
+	if closer, ok := executor.(io.Closer); ok {
 		defer func() {
 			if err := closer.Close(); err != nil {
 				logger.Default().Warn("close tool executor", zap.Error(err))
@@ -88,7 +89,7 @@ func (a *Agent) Chat(ctx context.Context, messages []Message, onEvent func(Strea
 			case "content":
 				contentBuf += event.Content
 				onEvent(event)
-			case "tool_start", "tool_result", "tool_confirm", "tool_confirm_result":
+			case "tool_start", "tool_result", "approval_request", "approval_result":
 				onEvent(event)
 			case "tool_call":
 				toolCalls = event.ToolCalls
@@ -127,7 +128,7 @@ func (a *Agent) Chat(ctx context.Context, messages []Message, onEvent func(Strea
 
 		for i, tc := range toolCalls {
 			g.Go(func() error {
-				result, execErr := a.executor.Execute(gCtx, tc.Function.Name, tc.Function.Arguments)
+				result, execErr := executor.Execute(gCtx, tc.Function.Name, tc.Function.Arguments)
 				if execErr != nil {
 					result = fmt.Sprintf("工具执行错误: %s", execErr.Error())
 				}

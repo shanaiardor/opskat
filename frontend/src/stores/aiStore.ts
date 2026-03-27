@@ -14,9 +14,9 @@ import { EventsOn } from "../../wailsjs/runtime/runtime";
 import i18n from "../i18n";
 import { useTabStore, registerTabCloseHook, registerTabRestoreHook, type AITabMeta, type Tab } from "./tabStore";
 
-// 内容块：文本、工具调用或 Sub Agent
+// 内容块：文本、工具调用、Sub Agent 或审批
 export interface ContentBlock {
-  type: "text" | "tool" | "agent";
+  type: "text" | "tool" | "agent" | "approval";
   content: string;
   toolName?: string;
   toolInput?: string;
@@ -26,6 +26,19 @@ export interface ContentBlock {
   agentRole?: string;
   agentTask?: string;
   childBlocks?: ContentBlock[];
+  // approval 块专用
+  approvalKind?: "single" | "batch" | "grant";
+  approvalItems?: Array<{
+    type: string;
+    asset_id: number;
+    asset_name: string;
+    group_id?: number;
+    group_name?: string;
+    command: string;
+    detail?: string;
+  }>;
+  approvalDescription?: string;
+  approvalSessionId?: string;
 }
 
 export interface ChatMessage {
@@ -44,6 +57,19 @@ interface StreamEventData {
   error?: string;
   agent_role?: string;
   agent_task?: string;
+  // approval_request 专用
+  kind?: "single" | "batch" | "grant";
+  items?: Array<{
+    type: string;
+    asset_id: number;
+    asset_name: string;
+    group_id?: number;
+    group_name?: string;
+    command: string;
+    detail?: string;
+  }>;
+  description?: string;
+  session_id?: string;
 }
 
 interface TabState {
@@ -519,40 +545,24 @@ export const useAIStore = create<AIState>((set, get) => {
             break;
           }
 
-          case "tool_confirm": {
-            const confirmName = event.tool_name || "run_command";
+          case "approval_request": {
             const updated = updateLastAssistant(msgs, (msg) => {
               const newBlocks = [...msg.blocks];
-              let existIdx = -1;
-              for (let i = newBlocks.length - 1; i >= 0; i--) {
-                if (newBlocks[i].type === "tool" && newBlocks[i].status === "running") {
-                  existIdx = i;
-                  break;
-                }
-              }
-              if (existIdx !== -1) {
-                newBlocks[existIdx] = {
-                  ...newBlocks[existIdx],
-                  toolName: confirmName,
-                  toolInput: event.tool_input || newBlocks[existIdx].toolInput,
-                  status: "pending_confirm" as const,
-                  confirmId: event.confirm_id,
-                };
-              } else {
-                newBlocks.push({
-                  type: "tool" as const,
-                  content: "",
-                  toolName: confirmName,
-                  toolInput: event.tool_input || "",
-                  status: "pending_confirm" as const,
-                  confirmId: event.confirm_id,
-                });
-              }
+              newBlocks.push({
+                type: "approval" as const,
+                content: "",
+                status: "pending_confirm" as const,
+                confirmId: event.confirm_id,
+                agentRole: event.agent_role,
+                approvalKind: event.kind,
+                approvalItems: event.items,
+                approvalDescription: event.description,
+                approvalSessionId: event.session_id,
+              });
               return { ...msg, blocks: newBlocks };
             });
             if (updated) updateTab(tabId, { messages: updated });
 
-            // 应用在后台时发送系统通知
             if (document.hidden) {
               try {
                 new Notification("OpsKat", {
@@ -566,7 +576,7 @@ export const useAIStore = create<AIState>((set, get) => {
             break;
           }
 
-          case "tool_confirm_result": {
+          case "approval_result": {
             const updated = updateLastAssistant(msgs, (msg) => {
               const newBlocks = msg.blocks.map((b) =>
                 b.confirmId === event.confirm_id && b.status === "pending_confirm"

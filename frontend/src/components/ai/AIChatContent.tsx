@@ -9,6 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAIStore, useAISendOnEnter, type ChatMessage } from "@/stores/aiStore";
 import { ToolBlock } from "@/components/ai/ToolBlock";
 import { AgentBlock } from "@/components/ai/AgentBlock";
+import { ApprovalBlock } from "@/components/approval/ApprovalBlock";
 import { AISetupWizard } from "@/components/ai/AISetupWizard";
 
 interface AIChatContentProps {
@@ -173,6 +174,8 @@ function AssistantMessage({ msg }: { msg: ChatMessage }) {
             </div>
           ) : block.type === "agent" ? (
             <AgentBlock key={idx} block={block} />
+          ) : block.type === "approval" ? (
+            <ApprovalBlock key={idx} block={block} />
           ) : (
             <ToolBlock key={idx} block={block} />
           )

@@ -1,18 +1,31 @@
 export namespace ai {
 	
-	export class ToolCall {
-	    id: string;
-	    // Go type: struct { Name string "json:\"name\""; Arguments string "json:\"arguments\"" }
-	    function: any;
+	export class TabInfo {
+	    type: string;
+	    assetId: number;
+	    assetName: string;
 	
 	    static createFrom(source: any = {}) {
-	        return new ToolCall(source);
+	        return new TabInfo(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.function = this.convertValues(source["function"], Object);
+	        this.type = source["type"];
+	        this.assetId = source["assetId"];
+	        this.assetName = source["assetName"];
+	    }
+	}
+	export class AIContext {
+	    openTabs: TabInfo[];
+	
+	    static createFrom(source: any = {}) {
+	        return new AIContext(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.openTabs = this.convertValues(source["openTabs"], TabInfo);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -33,34 +46,77 @@ export namespace ai {
 		    return a;
 		}
 	}
-	export class TabInfo {
+	export class ApprovalItem {
 	    type: string;
-	    assetId: number;
-	    assetName: string;
-
+	    asset_id: number;
+	    asset_name: string;
+	    group_id?: number;
+	    group_name?: string;
+	    command: string;
+	    detail?: string;
+	
 	    static createFrom(source: any = {}) {
-	        return new TabInfo(source);
+	        return new ApprovalItem(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.type = source["type"];
-	        this.assetId = source["assetId"];
-	        this.assetName = source["assetName"];
+	        this.asset_id = source["asset_id"];
+	        this.asset_name = source["asset_name"];
+	        this.group_id = source["group_id"];
+	        this.group_name = source["group_name"];
+	        this.command = source["command"];
+	        this.detail = source["detail"];
 	    }
 	}
-	export class AIContext {
-	    openTabs: TabInfo[];
-
+	export class ApprovalResponse {
+	    decision: string;
+	    edited_items?: ApprovalItem[];
+	
 	    static createFrom(source: any = {}) {
-	        return new AIContext(source);
+	        return new ApprovalResponse(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.openTabs = this.convertValues(source["openTabs"], TabInfo);
+	        this.decision = source["decision"];
+	        this.edited_items = this.convertValues(source["edited_items"], ApprovalItem);
 	    }
-
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ToolCall {
+	    id: string;
+	    // Go type: struct { Name string "json:\"name\""; Arguments string "json:\"arguments\"" }
+	    function: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new ToolCall(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.function = this.convertValues(source["function"], Object);
+	    }
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -115,6 +171,7 @@ export namespace ai {
 		    return a;
 		}
 	}
+	
 
 }
 
@@ -285,26 +342,6 @@ export namespace app {
 		    }
 		    return a;
 		}
-	}
-	export class GrantItemEdit {
-	    asset_id: number;
-	    asset_name: string;
-	    group_id: number;
-	    group_name: string;
-	    command: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new GrantItemEdit(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.asset_id = source["asset_id"];
-	        this.asset_name = source["asset_name"];
-	        this.group_id = source["group_id"];
-	        this.group_name = source["group_name"];
-	        this.command = source["command"];
-	    }
 	}
 	export class ImportFileInfo {
 	    filePath: string;

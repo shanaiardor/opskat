@@ -95,11 +95,10 @@ func handleSpawnAgent(ctx context.Context, args map[string]any) (string, error) 
 		AgentTask: task,
 	})
 
-	// 创建独立 executor
-	executor := deps.NewExecutor()
-
-	// 创建 Sub Agent
-	subAgent := NewAgent(deps.Provider, executor, deps.Checker, config)
+	// 创建 Sub Agent（使用独立 executor 工厂）
+	subAgent := NewAgent(deps.Provider, func() ToolExecutor {
+		return deps.NewExecutor()
+	}, deps.Checker, config)
 
 	// 构建初始消息
 	subMessages := []Message{
@@ -109,7 +108,8 @@ func handleSpawnAgent(ctx context.Context, args map[string]any) (string, error) 
 
 	// 运行 Sub Agent，转发事件到前端
 	var resultContent string
-	err := subAgent.Chat(withSubAgentFlag(ctx), subMessages, func(event StreamEvent) {
+	subCtx := WithAgentRole(withSubAgentFlag(ctx), role)
+	err := subAgent.Chat(subCtx, subMessages, func(event StreamEvent) {
 		switch event.Type {
 		case "content":
 			resultContent += event.Content

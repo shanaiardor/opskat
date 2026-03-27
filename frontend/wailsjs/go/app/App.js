@@ -330,20 +330,12 @@ export function ResizeSSH(arg1, arg2, arg3) {
   return window['go']['app']['App']['ResizeSSH'](arg1, arg2, arg3);
 }
 
+export function RespondAIApproval(arg1, arg2) {
+  return window['go']['app']['App']['RespondAIApproval'](arg1, arg2);
+}
+
 export function RespondAuthChallenge(arg1, arg2) {
   return window['go']['app']['App']['RespondAuthChallenge'](arg1, arg2);
-}
-
-export function RespondCommandConfirm(arg1, arg2) {
-  return window['go']['app']['App']['RespondCommandConfirm'](arg1, arg2);
-}
-
-export function RespondGrantApproval(arg1, arg2) {
-  return window['go']['app']['App']['RespondGrantApproval'](arg1, arg2);
-}
-
-export function RespondGrantApprovalWithEdits(arg1, arg2, arg3) {
-  return window['go']['app']['App']['RespondGrantApprovalWithEdits'](arg1, arg2, arg3);
 }
 
 export function RespondHostKeyVerify(arg1, arg2) {
@@ -352,10 +344,6 @@ export function RespondHostKeyVerify(arg1, arg2) {
 
 export function RespondOpsctlApproval(arg1, arg2) {
   return window['go']['app']['App']['RespondOpsctlApproval'](arg1, arg2);
-}
-
-export function RespondOpsctlApprovalGrant(arg1, arg2, arg3, arg4, arg5, arg6) {
-  return window['go']['app']['App']['RespondOpsctlApprovalGrant'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 export function RespondPermission(arg1, arg2) {

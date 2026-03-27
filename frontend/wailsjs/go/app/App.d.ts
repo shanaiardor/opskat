@@ -12,8 +12,8 @@ import {backup_svc} from '../models';
 import {sshpool} from '../models';
 import {import_svc} from '../models';
 import {audit_repo} from '../models';
-import {sftp_svc} from '../models';
 import {ai} from '../models';
+import {sftp_svc} from '../models';
 
 export function CancelGitHubAuth():Promise<void>;
 
@@ -179,19 +179,13 @@ export function PreviewTabbyConfig():Promise<import_svc.PreviewResult>;
 
 export function ResizeSSH(arg1:string,arg2:number,arg3:number):Promise<void>;
 
+export function RespondAIApproval(arg1:string,arg2:ai.ApprovalResponse):Promise<void>;
+
 export function RespondAuthChallenge(arg1:string,arg2:Array<string>):Promise<void>;
-
-export function RespondCommandConfirm(arg1:string,arg2:string):Promise<void>;
-
-export function RespondGrantApproval(arg1:string,arg2:boolean):Promise<void>;
-
-export function RespondGrantApprovalWithEdits(arg1:string,arg2:boolean,arg3:Array<app.GrantItemEdit>):Promise<void>;
 
 export function RespondHostKeyVerify(arg1:string,arg2:number):Promise<void>;
 
-export function RespondOpsctlApproval(arg1:string,arg2:boolean):Promise<void>;
-
-export function RespondOpsctlApprovalGrant(arg1:string,arg2:boolean,arg3:string,arg4:number,arg5:string,arg6:string):Promise<void>;
+export function RespondOpsctlApproval(arg1:string,arg2:ai.ApprovalResponse):Promise<void>;
 
 export function RespondPermission(arg1:string,arg2:string):Promise<void>;
 

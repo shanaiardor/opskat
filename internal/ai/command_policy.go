@@ -73,8 +73,12 @@ func setCheckResult(ctx context.Context, result CheckResult) {
 	}
 }
 
-// CommandConfirmFunc 命令确认回调，阻塞等待用户响应
-type CommandConfirmFunc func(assetName, command string) (allowed, alwaysAllow bool)
+// CommandConfirmFunc 命令确认回调，发送审批请求并阻塞等待前端响应
+// kind: "single", "batch", "grant"
+// items: 审批项列表
+// agentRole: 子 agent 角色（可为空）
+// 返回 ApprovalResponse
+type CommandConfirmFunc func(kind string, items []ApprovalItem, agentRole string) ApprovalResponse
 
 // GrantRequestFunc Grant 审批回调，创建 grant 并等待用户审批
 // patterns 为命令模式列表，用户可能在审批弹窗中编辑
@@ -106,6 +110,11 @@ func NewCommandPolicyChecker(confirmFunc CommandConfirmFunc) *CommandPolicyCheck
 	return &CommandPolicyChecker{
 		confirmFunc: confirmFunc,
 	}
+}
+
+// ConfirmFunc 返回确认回调（供 batch_command 等直接调用）
+func (c *CommandPolicyChecker) ConfirmFunc() CommandConfirmFunc {
+	return c.confirmFunc
 }
 
 // SetGrantRequestFunc 设置 Grant 审批回调
@@ -252,11 +261,20 @@ func (c *CommandPolicyChecker) handleConfirm(ctx context.Context, assetID int64,
 		assetName = asset.Name
 	}
 
-	allowed, alwaysAllow := c.confirmFunc(assetName, command)
-	if !allowed {
+	items := []ApprovalItem{{
+		Type:      "exec",
+		AssetID:   assetID,
+		AssetName: assetName,
+		Command:   command,
+	}}
+	agentRole := GetAgentRole(ctx)
+
+	resp := c.confirmFunc("single", items, agentRole)
+
+	if resp.Decision == "deny" {
 		return CheckResult{Decision: Deny, Message: policyFmt(ctx, "user denied execution: %s", "用户拒绝执行: %s", command), DecisionSource: SourceUserDeny}
 	}
-	if alwaysAllow {
+	if resp.Decision == "allowAll" {
 		sessionID := GetSessionID(ctx)
 		subCmds, _ := ExtractSubCommands(command)
 		if len(subCmds) == 0 {
@@ -469,4 +487,21 @@ func resolveGroupChain(ctx context.Context, groupID int64) []*group_entity.Group
 		currentID = g.ParentID
 	}
 	return chain
+}
+
+// --- agentRole context ---
+
+type agentRoleKeyType struct{}
+
+// WithAgentRole 注入 agent role（Sub Agent 用）
+func WithAgentRole(ctx context.Context, role string) context.Context {
+	return context.WithValue(ctx, agentRoleKeyType{}, role)
+}
+
+// GetAgentRole 获取 agent role
+func GetAgentRole(ctx context.Context) string {
+	if v, ok := ctx.Value(agentRoleKeyType{}).(string); ok {
+		return v
+	}
+	return ""
 }

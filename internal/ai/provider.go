@@ -44,15 +44,20 @@ type ToolFunction struct {
 
 // StreamEvent 流式响应事件
 type StreamEvent struct {
-	Type      string     `json:"type"`                 // "content" | "tool_start" | "tool_result" | "tool_call" | "tool_confirm" | "tool_confirm_result" | "agent_start" | "agent_end" | "done" | "error"
-	Content   string     `json:"content,omitempty"`    // type=content/tool_result/tool_confirm_result/agent_end 时的文本
-	ToolName  string     `json:"tool_name,omitempty"`  // type=tool_start/tool_result/tool_confirm 时的工具名
-	ToolInput string     `json:"tool_input,omitempty"` // type=tool_start/tool_confirm 时的输入摘要
+	Type      string     `json:"type"`                 // "content" | "tool_start" | "tool_result" | "tool_call" | "approval_request" | "approval_result" | "agent_start" | "agent_end" | "done" | "error"
+	Content   string     `json:"content,omitempty"`    // type=content/tool_result/approval_result/agent_end 时的文本
+	ToolName  string     `json:"tool_name,omitempty"`  // type=tool_start/tool_result 时的工具名
+	ToolInput string     `json:"tool_input,omitempty"` // type=tool_start 时的输入摘要
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"` // type=tool_call 时的工具调用 (OpenAI)
-	ConfirmID string     `json:"confirm_id,omitempty"` // type=tool_confirm/tool_confirm_result 时的确认请求 ID
+	ConfirmID string     `json:"confirm_id,omitempty"` // type=approval_request/approval_result 时的确认请求 ID
 	Error     string     `json:"error,omitempty"`      // type=error 时的错误信息
-	AgentRole string     `json:"agent_role,omitempty"` // type=agent_start 时的角色描述
+	AgentRole string     `json:"agent_role,omitempty"` // type=agent_start/approval_request 时的角色描述
 	AgentTask string     `json:"agent_task,omitempty"` // type=agent_start 时的任务描述
+	// approval_request 专用字段
+	Kind        string         `json:"kind,omitempty"`        // "single" | "batch" | "grant"
+	Items       []ApprovalItem `json:"items,omitempty"`       // 审批项列表
+	Description string         `json:"description,omitempty"` // grant 描述
+	SessionID   string         `json:"session_id,omitempty"`  // grant session ID
 }
 
 // PermissionResponse 权限响应

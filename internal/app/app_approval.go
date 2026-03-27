@@ -55,16 +55,20 @@ func (a *App) startApprovalServer(authToken string) {
 			"session_id": req.SessionID,
 		})
 
-		ch := make(chan bool, 1)
-		a.pendingApprovals.Store(confirmID, ch)
-		defer a.pendingApprovals.Delete(confirmID)
+		ch := make(chan ai.ApprovalResponse, 1)
+		a.pendingOpsctlApprovals.Store(confirmID, ch)
+		defer a.pendingOpsctlApprovals.Delete(confirmID)
 
 		select {
-		case approved := <-ch:
-			if approved {
-				return approval.ApprovalResponse{Approved: true}
+		case resp := <-ch:
+			if resp.Decision == "deny" {
+				return approval.ApprovalResponse{Approved: false, Reason: "user denied"}
 			}
-			return approval.ApprovalResponse{Approved: false, Reason: "user denied"}
+			// "allowAll" → 保存 grant 模式
+			if resp.Decision == "allowAll" && req.SessionID != "" {
+				ai.SaveGrantPattern(a.langCtx(), req.SessionID, req.AssetID, req.AssetName, req.Command)
+			}
+			return approval.ApprovalResponse{Approved: true}
 		case <-a.ctx.Done():
 			return approval.ApprovalResponse{Approved: false, Reason: "app shutting down"}
 		case <-a.shutdownCh:
@@ -117,16 +121,16 @@ func (a *App) handleBatchApproval(req approval.ApprovalRequest) approval.Approva
 		"items":      items,
 	})
 
-	ch := make(chan bool, 1)
-	a.pendingApprovals.Store(confirmID, ch)
-	defer a.pendingApprovals.Delete(confirmID)
+	ch := make(chan ai.ApprovalResponse, 1)
+	a.pendingOpsctlApprovals.Store(confirmID, ch)
+	defer a.pendingOpsctlApprovals.Delete(confirmID)
 
 	select {
-	case approved := <-ch:
-		if approved {
-			return approval.ApprovalResponse{Approved: true}
+	case resp := <-ch:
+		if resp.Decision == "deny" {
+			return approval.ApprovalResponse{Approved: false, Reason: "user denied"}
 		}
-		return approval.ApprovalResponse{Approved: false, Reason: "user denied"}
+		return approval.ApprovalResponse{Approved: true}
 	case <-a.ctx.Done():
 		return approval.ApprovalResponse{Approved: false, Reason: "app shutting down"}
 	case <-a.shutdownCh:
@@ -195,37 +199,64 @@ func (a *App) handleGrantApproval(req approval.ApprovalRequest) approval.Approva
 	})
 
 	// 等待前端响应
-	ch := make(chan bool, 1)
-	a.pendingApprovals.Store(sessionID, ch)
-	defer a.pendingApprovals.Delete(sessionID)
+	ch := make(chan ai.ApprovalResponse, 1)
+	a.pendingOpsctlApprovals.Store(sessionID, ch)
+	defer a.pendingOpsctlApprovals.Delete(sessionID)
 
 	select {
-	case approved := <-ch:
-		if approved {
-			if err := grant_repo.Grant().UpdateSessionStatus(ctx, sessionID, grant_entity.GrantStatusApproved); err != nil {
-				logger.Default().Error("update grant session status to approved", zap.Error(err))
+	case resp := <-ch:
+		if resp.Decision == "deny" {
+			if err := grant_repo.Grant().UpdateSessionStatus(ctx, sessionID, grant_entity.GrantStatusRejected); err != nil {
+				logger.Default().Error("update grant session status to rejected", zap.Error(err))
 			}
-			resp := approval.ApprovalResponse{Approved: true, SessionID: sessionID}
-			// 读取最终的 items（可能已被用户编辑）
-			if finalItems, err := grant_repo.Grant().ListItems(ctx, sessionID); err == nil {
-				for _, item := range finalItems {
-					resp.EditedItems = append(resp.EditedItems, approval.GrantItem{
-						Type:      item.ToolName,
-						AssetID:   item.AssetID,
-						AssetName: item.AssetName,
-						GroupID:   item.GroupID,
-						GroupName: item.GroupName,
-						Command:   item.Command,
-						Detail:    item.Detail,
+			return approval.ApprovalResponse{Approved: false, Reason: "user denied", SessionID: sessionID}
+		}
+		if err := grant_repo.Grant().UpdateSessionStatus(ctx, sessionID, grant_entity.GrantStatusApproved); err != nil {
+			logger.Default().Error("update grant session status to approved", zap.Error(err))
+		}
+		// 处理用户编辑的 items
+		if len(resp.EditedItems) > 0 {
+			var items []*grant_entity.GrantItem
+			for i, edit := range resp.EditedItems {
+				lines := strings.Split(edit.Command, "\n")
+				for _, line := range lines {
+					line = strings.TrimSpace(line)
+					if line == "" {
+						continue
+					}
+					items = append(items, &grant_entity.GrantItem{
+						GrantSessionID: sessionID,
+						ItemIndex:      i,
+						ToolName:       "exec",
+						AssetID:        edit.AssetID,
+						AssetName:      edit.AssetName,
+						GroupID:        edit.GroupID,
+						GroupName:      edit.GroupName,
+						Command:        line,
 					})
 				}
 			}
-			return resp
+			if len(items) > 0 {
+				if err := grant_repo.Grant().UpdateItems(ctx, sessionID, items); err != nil {
+					logger.Default().Error("update grant items", zap.Error(err))
+				}
+			}
 		}
-		if err := grant_repo.Grant().UpdateSessionStatus(ctx, sessionID, grant_entity.GrantStatusRejected); err != nil {
-			logger.Default().Error("update grant session status to rejected", zap.Error(err))
+		finalResp := approval.ApprovalResponse{Approved: true, SessionID: sessionID}
+		if finalItems, err := grant_repo.Grant().ListItems(ctx, sessionID); err == nil {
+			for _, item := range finalItems {
+				finalResp.EditedItems = append(finalResp.EditedItems, approval.GrantItem{
+					Type:      item.ToolName,
+					AssetID:   item.AssetID,
+					AssetName: item.AssetName,
+					GroupID:   item.GroupID,
+					GroupName: item.GroupName,
+					Command:   item.Command,
+					Detail:    item.Detail,
+				})
+			}
 		}
-		return approval.ApprovalResponse{Approved: false, Reason: "user denied", SessionID: sessionID}
+		return finalResp
 	case <-a.ctx.Done():
 		if err := grant_repo.Grant().UpdateSessionStatus(ctx, sessionID, grant_entity.GrantStatusRejected); err != nil {
 			logger.Default().Error("update grant session status to rejected on shutdown", zap.Error(err))
@@ -239,118 +270,66 @@ func (a *App) handleGrantApproval(req approval.ApprovalRequest) approval.Approva
 	}
 }
 
-// RespondOpsctlApproval 前端响应 opsctl 审批请求
-func (a *App) RespondOpsctlApproval(confirmID string, approved bool) {
-	if v, ok := a.pendingApprovals.Load(confirmID); ok {
-		ch := v.(chan bool)
+// RespondOpsctlApproval 前端响应 opsctl 审批请求（统一入口）
+func (a *App) RespondOpsctlApproval(confirmID string, resp ai.ApprovalResponse) {
+	if v, ok := a.pendingOpsctlApprovals.Load(confirmID); ok {
+		ch := v.(chan ai.ApprovalResponse)
 		select {
-		case ch <- approved:
+		case ch <- resp:
 		default:
 		}
 	}
 }
 
-// GrantItemEdit 前端编辑后的 grant item
-type GrantItemEdit struct {
-	AssetID   int64  `json:"asset_id"`
-	AssetName string `json:"asset_name"`
-	GroupID   int64  `json:"group_id"`
-	GroupName string `json:"group_name"`
-	Command   string `json:"command"`
-}
-
-// RespondGrantApproval 前端响应计划审批请求
-func (a *App) RespondGrantApproval(sessionID string, approved bool) {
-	a.RespondOpsctlApproval(sessionID, approved)
-}
-
-// RespondGrantApprovalWithEdits 前端响应计划审批请求并更新编辑后的 items
-func (a *App) RespondGrantApprovalWithEdits(sessionID string, approved bool, editedItems []GrantItemEdit) {
-	if approved && len(editedItems) > 0 {
-		// 更新 grant items
-		var items []*grant_entity.GrantItem
-		for i, edit := range editedItems {
-			// 支持一行多个命令（换行分隔）
-			lines := strings.Split(edit.Command, "\n")
-			for _, line := range lines {
-				line = strings.TrimSpace(line)
-				if line == "" {
-					continue
-				}
-				items = append(items, &grant_entity.GrantItem{
-					GrantSessionID: sessionID,
-					ItemIndex:      i,
-					ToolName:       "exec",
-					AssetID:        edit.AssetID,
-					AssetName:      edit.AssetName,
-					GroupID:        edit.GroupID,
-					GroupName:      edit.GroupName,
-					Command:        line,
-				})
-			}
-		}
-		if len(items) > 0 {
-			if err := grant_repo.Grant().UpdateItems(a.langCtx(), sessionID, items); err != nil {
-				logger.Default().Error("update grant items", zap.Error(err))
-			}
-		}
-	}
-	a.RespondOpsctlApproval(sessionID, approved)
-}
-
-// RespondOpsctlApprovalGrant 前端响应审批并记住 grant 命令模式
-func (a *App) RespondOpsctlApprovalGrant(confirmID string, approved bool, sessionID string, assetID int64, assetName string, commandPattern string) {
-	if approved && sessionID != "" && commandPattern != "" {
-		ai.SaveGrantPattern(a.langCtx(), sessionID, assetID, assetName, commandPattern)
-	}
-	a.RespondOpsctlApproval(confirmID, approved)
-}
-
-// makeCommandConfirmFunc 创建命令确认回调，向 AI 聊天流发送 tool_confirm 事件并阻塞等待
+// makeCommandConfirmFunc 创建统一审批回调，向 AI 聊天流发送 approval_request 事件并阻塞等待
 func (a *App) makeCommandConfirmFunc() ai.CommandConfirmFunc {
-	return func(assetName, command string) (bool, bool) {
+	return func(kind string, items []ai.ApprovalItem, agentRole string) ai.ApprovalResponse {
 		convID := a.currentConversationID
-		confirmID := fmt.Sprintf("cmd_%d_%d", convID, time.Now().UnixNano())
+		confirmID := fmt.Sprintf("ai_%d_%d", convID, time.Now().UnixNano())
 		eventName := fmt.Sprintf("ai:event:%d", convID)
 
-		// 向 AI 聊天流发送 tool_confirm 事件
+		// 向 AI 聊天流发送 approval_request 事件
 		wailsRuntime.EventsEmit(a.ctx, eventName, ai.StreamEvent{
-			Type:      "tool_confirm",
-			ToolName:  "run_command",
-			ToolInput: fmt.Sprintf("[%s] $ %s", assetName, command),
+			Type:      "approval_request",
+			Kind:      kind,
+			Items:     items,
 			ConfirmID: confirmID,
+			AgentRole: agentRole,
 		})
 
 		// 阻塞等待前端响应
-		ch := make(chan ConfirmResponse, 1)
-		a.pendingConfirms.Store(confirmID, ch)
-		defer a.pendingConfirms.Delete(confirmID)
+		ch := make(chan ai.ApprovalResponse, 1)
+		a.pendingAIApprovals.Store(confirmID, ch)
+		defer a.pendingAIApprovals.Delete(confirmID)
 
 		select {
 		case resp := <-ch:
 			// 发送确认结果事件更新 UI 状态
 			wailsRuntime.EventsEmit(a.ctx, eventName, ai.StreamEvent{
-				Type:      "tool_confirm_result",
+				Type:      "approval_result",
 				ConfirmID: confirmID,
-				Content:   resp.Behavior,
+				Content:   resp.Decision,
 			})
-			return resp.Behavior != "deny", resp.Behavior == "allowAll"
+			return resp
 		case <-a.ctx.Done():
-			return false, false
+			return ai.ApprovalResponse{Decision: "deny"}
 		case <-a.shutdownCh:
-			return false, false
+			return ai.ApprovalResponse{Decision: "deny"}
 		}
 	}
 }
 
-// makeGrantRequestFunc 创建 Grant 审批回调，复用 grant 审批弹窗
+// makeGrantRequestFunc 创建 Grant 审批回调，使用 inline approval
 func (a *App) makeGrantRequestFunc() ai.GrantRequestFunc {
 	return func(assetID int64, assetName string, patterns []string, reason string) (bool, []string) {
-		// 构建 ApprovalRequest 并走 grant 审批流程
-		grantItems := make([]approval.GrantItem, 0, len(patterns))
+		convID := a.currentConversationID
+		confirmID := fmt.Sprintf("grant_%d_%d", convID, time.Now().UnixNano())
+		eventName := fmt.Sprintf("ai:event:%d", convID)
+
+		items := make([]ai.ApprovalItem, 0, len(patterns))
 		for _, p := range patterns {
-			grantItems = append(grantItems, approval.GrantItem{
-				Type:      "exec",
+			items = append(items, ai.ApprovalItem{
+				Type:      "grant",
 				AssetID:   assetID,
 				AssetName: assetName,
 				Command:   p,
@@ -358,39 +337,52 @@ func (a *App) makeGrantRequestFunc() ai.GrantRequestFunc {
 			})
 		}
 
-		resp := a.handleGrantApproval(approval.ApprovalRequest{
-			Type:        "grant",
-			SessionID:   fmt.Sprintf("conv_%d", a.currentConversationID),
-			GrantItems:  grantItems,
+		wailsRuntime.EventsEmit(a.ctx, eventName, ai.StreamEvent{
+			Type:        "approval_request",
+			Kind:        "grant",
+			Items:       items,
+			ConfirmID:   confirmID,
 			Description: reason,
+			SessionID:   fmt.Sprintf("conv_%d", convID),
 		})
 
-		if !resp.Approved {
+		ch := make(chan ai.ApprovalResponse, 1)
+		a.pendingAIApprovals.Store(confirmID, ch)
+		defer a.pendingAIApprovals.Delete(confirmID)
+
+		select {
+		case resp := <-ch:
+			wailsRuntime.EventsEmit(a.ctx, eventName, ai.StreamEvent{
+				Type:      "approval_result",
+				ConfirmID: confirmID,
+				Content:   resp.Decision,
+			})
+			if resp.Decision == "deny" {
+				return false, nil
+			}
+			if len(resp.EditedItems) > 0 {
+				var finalPatterns []string
+				for _, item := range resp.EditedItems {
+					finalPatterns = append(finalPatterns, item.Command)
+				}
+				return true, finalPatterns
+			}
+			return true, patterns
+		case <-a.ctx.Done():
+			return false, nil
+		case <-a.shutdownCh:
 			return false, nil
 		}
-
-		// 读回可能被用户编辑过的 items
-		items, err := grant_repo.Grant().ListItems(a.langCtx(), resp.SessionID)
-		if err != nil || len(items) == 0 {
-			return true, patterns
-		}
-		var finalPatterns []string
-		for _, item := range items {
-			finalPatterns = append(finalPatterns, item.Command)
-		}
-		return true, finalPatterns
 	}
 }
 
-// RespondCommandConfirm 前端响应 run_command 确认请求
-func (a *App) RespondCommandConfirm(confirmID, behavior string) {
-	// 先检查普通命令确认（有明确的 confirmID 匹配）
-	if v, ok := a.pendingConfirms.Load(confirmID); ok {
-		ch := v.(chan ConfirmResponse)
+// RespondAIApproval 前端响应 AI 审批请求（统一入口）
+func (a *App) RespondAIApproval(confirmID string, resp ai.ApprovalResponse) {
+	if v, ok := a.pendingAIApprovals.Load(confirmID); ok {
+		ch := v.(chan ai.ApprovalResponse)
 		select {
-		case ch <- ConfirmResponse{Behavior: behavior}:
+		case ch <- resp:
 		default:
 		}
-		return
 	}
 }
