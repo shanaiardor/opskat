@@ -35,20 +35,7 @@ It also ships a standalone CLI tool (`opsctl`) sharing the same core, for headle
 
 ## Demo
 
-<!-- Replace the image below with your video/gif demo -->
-<p align="center">
-  <img src="docs/images/screenshot-main.png" alt="OpsKat Screenshot">
-</p>
-
-<!--
-To embed a video demo, use one of the following:
-
-GitHub hosted video:
-https://github.com/user-attachments/assets/xxxxx
-
-YouTube embed (won't render on GitHub, use a linked thumbnail instead):
-[![OpsKat Demo](https://img.youtube.com/vi/VIDEO_ID/maxresdefault.jpg)](https://www.youtube.com/watch?v=VIDEO_ID)
--->
+https://github.com/opskat/opskat/releases/download/v1.0.0/demo.mp4
 
 ## ✨ Core Features
 
