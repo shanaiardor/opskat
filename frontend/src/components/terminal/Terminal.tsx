@@ -125,7 +125,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       WriteSSH(sessionId, encoded).catch(console.error);
     });
 
-    // 后端输出 → 终端
+    // 后端输出 → 终端（Go 侧已做 10ms 合并，此处直接写入，依赖 xterm.js 内部写入缓冲）
     const eventName = "ssh:data:" + sessionId;
     EventsOn(eventName, (dataB64: string) => {
       const binary = atob(dataB64);

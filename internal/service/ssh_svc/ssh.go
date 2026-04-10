@@ -1,6 +1,7 @@
 package ssh_svc
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net"
@@ -585,21 +586,68 @@ func buildAuthMethods(authType, password, key string, privateKeyPaths []string,
 }
 
 // readOutput 持续读取终端输出并回调
+// 使用 timer 合并输出，减少高频 EventsEmit 调用导致前端事件队列阻塞
 func (m *Manager) readOutput(sess *Session) {
-	buf := make([]byte, 8192)
-	for {
-		n, err := sess.stdout.Read(buf)
-		if n > 0 && sess.onData != nil {
-			data := make([]byte, n)
-			copy(data, buf[:n])
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Default().Error("readOutput panic recovered",
+				zap.String("sessionID", sess.ID),
+				zap.Any("panic", r))
+		}
+		sess.Close()
+		m.sessions.Delete(sess.ID)
+	}()
+
+	var pending bytes.Buffer
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	flush := func() {
+		if pending.Len() > 0 && sess.onData != nil {
+			data := make([]byte, pending.Len())
+			copy(data, pending.Bytes())
+			pending.Reset()
 			sess.onData(data)
 		}
-		if err != nil {
-			break
+	}
+
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	readCh := make(chan readResult, 4)
+
+	go func() {
+		buf := make([]byte, 32768)
+		for {
+			n, err := sess.stdout.Read(buf)
+			if n > 0 {
+				data := make([]byte, n)
+				copy(data, buf[:n])
+				readCh <- readResult{data: data}
+			}
+			if err != nil {
+				readCh <- readResult{err: err}
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case r := <-readCh:
+			if r.err != nil {
+				flush()
+				return
+			}
+			pending.Write(r.data)
+			if pending.Len() >= 32*1024 {
+				flush()
+			}
+		case <-ticker.C:
+			flush()
 		}
 	}
-	sess.Close()
-	m.sessions.Delete(sess.ID)
 }
 
 // GetSession 获取会话
