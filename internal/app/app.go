@@ -212,7 +212,7 @@ type appPoolDialer struct {
 }
 
 func (d *appPoolDialer) DialAsset(ctx context.Context, assetID int64) (*ssh.Client, []io.Closer, error) {
-	sshCfg, password, key, jumpHosts, err := credential_resolver.Default().ResolveSSHConnectConfig(ctx, assetID)
+	sshCfg, password, key, passphrase, jumpHosts, err := credential_resolver.Default().ResolveSSHConnectConfig(ctx, assetID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -224,6 +224,7 @@ func (d *appPoolDialer) DialAsset(ctx context.Context, assetID int64) (*ssh.Clie
 		AuthType:          sshCfg.AuthType,
 		Password:          password,
 		Key:               key,
+		KeyPassphrase:     passphrase,
 		PrivateKeys:       sshCfg.PrivateKeys,
 		AssetID:           assetID,
 		Proxy:             sshCfg.Proxy,
@@ -234,13 +235,13 @@ func (d *appPoolDialer) DialAsset(ctx context.Context, assetID int64) (*ssh.Clie
 	return d.sshManager.Dial(cfg)
 }
 
-// resolveSSHCredentials 从 SSHConfig 解析凭据（委托给 credential_resolver）
-func (a *App) resolveSSHCredentials(sshCfg *asset_entity.SSHConfig) (password, key string) {
-	p, k, err := credential_resolver.Default().ResolveSSHCredentials(a.langCtx(), sshCfg)
+// resolveSSHCredentialsFull 解析 SSH 凭据，返回密码、密钥、passphrase
+func (a *App) resolveSSHCredentialsFull(sshCfg *asset_entity.SSHConfig) (password, key, passphrase string) {
+	p, k, pp, err := credential_resolver.Default().ResolveSSHCredentials(a.langCtx(), sshCfg)
 	if err != nil {
 		logger.Default().Warn("resolve SSH credentials", zap.Error(err))
 	}
-	return p, k
+	return p, k, pp
 }
 
 // decryptProxyPassword 解密代理配置中的密码（委托给 credential_resolver）

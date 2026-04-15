@@ -41,8 +41,8 @@ func (a *App) ConnectSSH(req SSHConnectRequest) (string, error) {
 		return "", err
 	}
 
-	// 解析存储的凭证
-	storedPassword, storedKey := a.resolveSSHCredentials(sshCfg)
+	// 解析存储的凭证（包含 passphrase）
+	storedPassword, storedKey, storedPassphrase := a.resolveSSHCredentialsFull(sshCfg)
 	password := req.Password
 	key := req.Key
 	if password == "" {
@@ -59,6 +59,7 @@ func (a *App) ConnectSSH(req SSHConnectRequest) (string, error) {
 		AuthType:          sshCfg.AuthType,
 		Password:          password,
 		Key:               key,
+		KeyPassphrase:     storedPassphrase,
 		PrivateKeys:       sshCfg.PrivateKeys,
 		AssetID:           req.AssetID,
 		Cols:              req.Cols,
@@ -149,7 +150,7 @@ func (a *App) ConnectSSHAsync(req SSHConnectRequest) (string, error) {
 		}
 
 		// 解析凭证
-		storedPassword, storedKey := a.resolveSSHCredentials(sshCfg)
+		storedPassword, storedKey, storedPassphrase := a.resolveSSHCredentialsFull(sshCfg)
 		password := req.Password
 		key := req.Key
 		if password == "" {
@@ -160,17 +161,18 @@ func (a *App) ConnectSSHAsync(req SSHConnectRequest) (string, error) {
 		}
 
 		connectCfg := ssh_svc.ConnectConfig{
-			Host:        sshCfg.Host,
-			Port:        sshCfg.Port,
-			Username:    sshCfg.Username,
-			AuthType:    sshCfg.AuthType,
-			Password:    password,
-			Key:         key,
-			PrivateKeys: sshCfg.PrivateKeys,
-			AssetID:     req.AssetID,
-			Cols:        req.Cols,
-			Rows:        req.Rows,
-			Proxy:       a.decryptProxyPassword(sshCfg.Proxy),
+			Host:          sshCfg.Host,
+			Port:          sshCfg.Port,
+			Username:      sshCfg.Username,
+			AuthType:      sshCfg.AuthType,
+			Password:      password,
+			Key:           key,
+			KeyPassphrase: storedPassphrase,
+			PrivateKeys:   sshCfg.PrivateKeys,
+			AssetID:       req.AssetID,
+			Cols:          req.Cols,
+			Rows:          req.Rows,
+			Proxy:         a.decryptProxyPassword(sshCfg.Proxy),
 			OnData: func(sid string, data []byte) {
 				wailsRuntime.EventsEmit(a.ctx, "ssh:data:"+sid, base64.StdEncoding.EncodeToString(data))
 			},
@@ -319,10 +321,28 @@ func (a *App) TestSSHConnection(configJSON string, plainPassword string) error {
 		return fmt.Errorf("配置解析失败: %w", err)
 	}
 
-	storedPassword, key := a.resolveSSHCredentials(&sshCfg)
+	storedPassword, key, passphrase := a.resolveSSHCredentialsFull(&sshCfg)
 	password := plainPassword
 	if password == "" {
 		password = storedPassword
+	}
+
+	// 处理 passphrase：
+	// 1. 如果前端传入明文 passphrase（用户新输入），直接使用
+	// 2. 如果前端传入加密的 passphrase（存储的），尝试解密
+	// 3. 否则使用 resolver 解析出的 passphrase（托管密钥）
+	var keyPassphrase string
+	if sshCfg.PrivateKeyPassphrase != "" {
+		// 尝试解密，如果解密失败则认为是明文（用户刚输入的）
+		decrypted, err := credential_svc.Default().Decrypt(sshCfg.PrivateKeyPassphrase)
+		if err == nil {
+			keyPassphrase = decrypted
+		} else {
+			// 解密失败，可能是明文 passphrase（用户刚输入）
+			keyPassphrase = sshCfg.PrivateKeyPassphrase
+		}
+	} else {
+		keyPassphrase = passphrase
 	}
 
 	connectCfg := ssh_svc.ConnectConfig{
@@ -332,6 +352,7 @@ func (a *App) TestSSHConnection(configJSON string, plainPassword string) error {
 		AuthType:          sshCfg.AuthType,
 		Password:          password,
 		Key:               key,
+		KeyPassphrase:     keyPassphrase,
 		PrivateKeys:       sshCfg.PrivateKeys,
 		Proxy:             sshCfg.Proxy,
 		HostKeyVerifyFunc: ssh_svc.AutoTrustFirstRejectChangeVerifyFunc(),
