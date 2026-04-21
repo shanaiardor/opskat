@@ -67,9 +67,10 @@ func (a *App) InitAIProvider() {
 
 // ConversationDisplayMessage 返回给前端的会话消息（用于恢复显示）
 type ConversationDisplayMessage struct {
-	Role    string                             `json:"role"`
-	Content string                             `json:"content"`
-	Blocks  []conversation_entity.ContentBlock `json:"blocks"`
+	Role     string                             `json:"role"`
+	Content  string                             `json:"content"`
+	Blocks   []conversation_entity.ContentBlock `json:"blocks"`
+	Mentions []conversation_entity.MentionRef   `json:"mentions"`
 }
 
 // CreateConversation 创建新会话
@@ -136,10 +137,15 @@ func (a *App) loadConversationDisplayMessages(ctx context.Context, id int64) ([]
 		if err != nil {
 			logger.Default().Warn("get message blocks", zap.Error(err))
 		}
+		mentions, err := msg.GetMentions()
+		if err != nil {
+			logger.Default().Warn("get message mentions", zap.Error(err))
+		}
 		displayMsgs = append(displayMsgs, ConversationDisplayMessage{
-			Role:    msg.Role,
-			Content: msg.Content,
-			Blocks:  blocks,
+			Role:     msg.Role,
+			Content:  msg.Content,
+			Blocks:   blocks,
+			Mentions: mentions,
 		})
 	}
 	return displayMsgs, nil
@@ -281,16 +287,22 @@ func (a *App) getOrCreateRunner(convID int64) *ai.ConversationRunner {
 }
 
 // QueueAIMessage 在生成过程中追加用户消息到队列，
-// 会在下一次工具调用结束后被注入到对话上下文
-func (a *App) QueueAIMessage(convID int64, content string) error {
+// 会在下一次工具调用结束后被注入到对话上下文。
+// 若消息带 @ 提及的资产，将资产上下文渲染后 prepend 到消息正文，
+// 以便 agent 在后续轮次看到 mention 信息（系统提示在 Start 时已定型，无法再次重建）。
+func (a *App) QueueAIMessage(convID int64, content string, mentions []ai.MentionedAsset) error {
 	v, ok := a.runners.Load(convID)
 	if !ok {
 		return fmt.Errorf("会话 %d 没有正在运行的生成", convID)
 	}
 	runner := v.(*ai.ConversationRunner)
-	runner.QueueMessage(ai.Message{
+	body := content
+	if mentionCtx := ai.RenderMentionContext(mentions); mentionCtx != "" {
+		body = mentionCtx + "\n\n" + content
+	}
+	runner.QueueMessage(content, ai.Message{
 		Role:    ai.RoleUser,
-		Content: content,
+		Content: body,
 	})
 	return nil
 }
@@ -324,6 +336,9 @@ func (a *App) SaveConversationMessages(convID int64, displayMsgs []ConversationD
 		}
 		if err := msg.SetBlocks(dm.Blocks); err != nil {
 			logger.Default().Error("set message blocks", zap.Error(err))
+		}
+		if err := msg.SetMentions(dm.Mentions); err != nil {
+			logger.Default().Error("set message mentions", zap.Error(err))
 		}
 		msgs = append(msgs, msg)
 	}

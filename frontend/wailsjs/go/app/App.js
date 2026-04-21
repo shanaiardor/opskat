@@ -330,10 +330,6 @@ export function ListAssets(arg1, arg2) {
   return window['go']['app']['App']['ListAssets'](arg1, arg2);
 }
 
-export function LoadConversationMessages(arg1) {
-  return window['go']['app']['App']['LoadConversationMessages'](arg1);
-}
-
 export function ListAuditLogs(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
   return window['go']['app']['App']['ListAuditLogs'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
@@ -386,6 +382,10 @@ export function ListPolicyGroups(arg1) {
   return window['go']['app']['App']['ListPolicyGroups'](arg1);
 }
 
+export function LoadConversationMessages(arg1) {
+  return window['go']['app']['App']['LoadConversationMessages'](arg1);
+}
+
 export function MoveAsset(arg1, arg2) {
   return window['go']['app']['App']['MoveAsset'](arg1, arg2);
 }
@@ -418,8 +418,8 @@ export function PreviewTabbyConfig() {
   return window['go']['app']['App']['PreviewTabbyConfig']();
 }
 
-export function QueueAIMessage(arg1, arg2) {
-  return window['go']['app']['App']['QueueAIMessage'](arg1, arg2);
+export function QueueAIMessage(arg1, arg2, arg3) {
+  return window['go']['app']['App']['QueueAIMessage'](arg1, arg2, arg3);
 }
 
 export function ReloadExtensions() {

@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, memo, useCallback, createContext, useContext } from "react";
-import { useIMEComposing } from "@/hooks/useIMEComposing";
 import { Loader2, CornerDownLeft, Square, RefreshCw, X, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
@@ -17,7 +16,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@opskat/ui";
-import { useAIStore, useAISendOnEnter, type ChatMessage, type ContentBlock } from "@/stores/aiStore";
+import {
+  useAIStore,
+  useAISendOnEnter,
+  type ChatMessage,
+  type ContentBlock,
+  type PendingQueueItem,
+  type MentionRef,
+} from "@/stores/aiStore";
+import { AIChatInput, type AIChatInputHandle } from "@/components/ai/AIChatInput";
+import { UserMessage } from "@/components/ai/UserMessage";
 import { useTabStore, type AITabMeta } from "@/stores/tabStore";
 import { ToolBlock } from "@/components/ai/ToolBlock";
 import { ThinkingBlock } from "@/components/ai/ThinkingBlock";
@@ -31,14 +39,14 @@ const mdRehypePlugins = [rehypeSanitize];
 
 // 稳定引用的默认值，避免 zustand selector 每次返回新对象导致无限渲染
 const EMPTY_MESSAGES: ChatMessage[] = [];
-const DEFAULT_STREAMING = { sending: false, pendingQueue: [] as string[] };
+const DEFAULT_STREAMING = { sending: false, pendingQueue: [] as PendingQueueItem[] };
 
 interface AIChatContentProps {
   tabId?: string;
   conversationId?: number | null;
   compact?: boolean;
   /** Optional: if provided, replaces the default sendToTab-based send path. */
-  onSendOverride?: (content: string) => Promise<void>;
+  onSendOverride?: (content: string, mentions?: MentionRef[]) => Promise<void>;
   /** Optional: if provided, replaces the default stopGeneration-based stop path. */
   onStopOverride?: () => Promise<void>;
 }
@@ -98,30 +106,31 @@ export function AIChatContent({
   );
   const { sending, pendingQueue } = streaming;
 
-  const [input, setInput] = useState("");
   const [regenerateTarget, setRegenerateTarget] = useState<number | null>(null);
+  const [empty, setEmpty] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { composingRef, onCompositionStart, onCompositionEnd } = useIMEComposing();
+  const inputRef = useRef<AIChatInputHandle>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   useEffect(() => {
-    textareaRef.current?.focus();
+    inputRef.current?.focus();
   }, [tabId]);
 
-  const handleSend = () => {
-    const text = input.trim();
-    if (!text) return;
-    setInput("");
-    if (onSendOverride) {
-      void onSendOverride(text);
-    } else if (tabId) {
-      sendToTab(tabId, text);
-    }
-  };
+  const handleSend = useCallback(
+    (text: string, mentions: MentionRef[]) => {
+      const trimmed = text.trim();
+      if (!trimmed && mentions.length === 0) return;
+      if (onSendOverride) {
+        void onSendOverride(text, mentions.length > 0 ? mentions : undefined);
+      } else if (tabId) {
+        sendToTab(tabId, text, mentions.length > 0 ? mentions : undefined);
+      }
+    },
+    [onSendOverride, sendToTab, tabId]
+  );
 
   const handleStop = () => {
     if (onStopOverride) {
@@ -145,26 +154,6 @@ export function AIChatContent({
   };
 
   const sendOnEnter = useAISendOnEnter();
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // IME 合成中：交给浏览器（Enter 作为候选词确认，不发送）
-    // - nativeEvent.isComposing: DOM 标准
-    // - keyCode === 229: 浏览器对 IME 正在处理该键的底层标识（跨浏览器最稳）
-    // - composingRef.current: compositionstart/end 追踪兜底
-
-    if (e.nativeEvent.isComposing || e.keyCode === 229 || composingRef.current) return;
-    if (sendOnEnter) {
-      if (e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
-    } else {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        handleSend();
-      }
-    }
-  };
 
   if (!configured) {
     return <AISetupWizard />;
@@ -220,10 +209,10 @@ export function AIChatContent({
                 </Button>
               </div>
               <div className="space-y-1">
-                {pendingQueue.map((text, i) => (
+                {pendingQueue.map((item, i) => (
                   <div key={i} className="flex items-center gap-1.5 text-xs bg-background rounded px-2 py-1.5 border">
                     <span className="truncate flex-1 text-muted-foreground">
-                      {text.length > 50 ? text.slice(0, 50) + "…" : text}
+                      {item.text.length > 50 ? item.text.slice(0, 50) + "…" : item.text}
                     </span>
                     <button
                       className="shrink-0 text-muted-foreground/50 hover:text-destructive transition-colors"
@@ -244,17 +233,12 @@ export function AIChatContent({
         <div className="border-t p-3">
           <div className="max-w-3xl mx-auto">
             <div className="rounded-xl border border-input bg-background transition-colors duration-150 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/50">
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onCompositionStart={onCompositionStart}
-                onCompositionEnd={onCompositionEnd}
+              <AIChatInput
+                ref={inputRef}
+                onSubmit={handleSend}
+                onEmptyChange={setEmpty}
+                sendOnEnter={sendOnEnter}
                 placeholder={t("ai.sendPlaceholder")}
-                rows={2}
-                className="w-full max-h-[25vh] rounded-t-xl bg-transparent px-3 pt-3 pb-1 text-sm outline-none resize-none placeholder:text-muted-foreground/60"
-                style={{ fieldSizing: "content" } as React.CSSProperties}
               />
               <div className="flex items-center justify-between px-3 pb-2">
                 <span className="text-xs text-muted-foreground/40 select-none">
@@ -275,8 +259,8 @@ export function AIChatContent({
                   <Button
                     size="icon"
                     className="h-7 w-7 shrink-0 rounded-lg"
-                    onClick={handleSend}
-                    disabled={!input.trim()}
+                    onClick={() => inputRef.current?.submit()}
+                    disabled={empty}
                   >
                     <CornerDownLeft className="h-3.5 w-3.5" />
                   </Button>
@@ -305,21 +289,6 @@ export function AIChatContent({
     </CompactContext.Provider>
   );
 }
-
-const UserMessage = memo(function UserMessage({ msg }: { msg: ChatMessage }) {
-  const compactCtx = useCompact();
-  const maxWidthClass = compactCtx ? "max-w-[95%]" : "max-w-[85%]";
-  return (
-    <div className="flex flex-col items-end gap-1.5">
-      <span className="text-xs font-semibold text-muted-foreground tracking-wide">You</span>
-      <div
-        className={`inline-block rounded-xl rounded-br-sm bg-primary px-3.5 py-2.5 text-primary-foreground ${maxWidthClass} text-left shadow-sm break-words`}
-      >
-        {msg.content}
-      </div>
-    </div>
-  );
-});
 
 const AssistantMessage = memo(function AssistantMessage({
   msg,
