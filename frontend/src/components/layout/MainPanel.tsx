@@ -222,7 +222,9 @@ export function MainPanel({ onEditAsset, onDeleteAsset, onConnectAsset }: MainPa
           );
         })}
 
-        {/* Query tabs: visibility-based */}
+        {/* Query tabs: display-based — sticky thead would leak as a composited
+            layer if the parent only toggled visibility. State is in zustand,
+            so display:none is safe here. */}
         {queryTabs.map((tab) => {
           const isActive = activeTabId === tab.id;
           const meta = tab.meta as QueryTabMeta;
@@ -230,10 +232,7 @@ export function MainPanel({ onEditAsset, onDeleteAsset, onConnectAsset }: MainPa
             <div
               key={tab.id}
               className="absolute inset-0 bg-background"
-              style={{
-                visibility: isActive ? "visible" : "hidden",
-                pointerEvents: isActive ? "auto" : "none",
-              }}
+              style={{ display: isActive ? "block" : "none" }}
             >
               {meta.assetType === "database" ? (
                 <DatabasePanel tabId={tab.id} />
