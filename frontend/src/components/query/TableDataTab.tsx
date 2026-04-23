@@ -12,6 +12,7 @@ import {
   Filter,
   FileCode2,
   Copy,
+  Plus,
   Eye,
   TriangleAlert,
   Download,
@@ -39,6 +40,7 @@ import { isMac } from "@/stores/shortcutStore";
 import { ExecuteSQL } from "../../../wailsjs/go/app/App";
 import { QueryResultTable, CellEdit, SortDir } from "./QueryResultTable";
 import { SqlPreviewDialog } from "./SqlPreviewDialog";
+import { InsertRowDialog } from "./InsertRowDialog";
 import { toast } from "sonner";
 
 interface TableDataTabProps {
@@ -138,6 +140,7 @@ function TableDataTabContent({ tabId, innerTabId, database, table }: TableDataTa
   // `confirm` = confirmation before submit (opened by the "Submit" button).
   const [dialogMode, setDialogMode] = useState<"preview" | "confirm" | null>(null);
   const [showDDLDialog, setShowDDLDialog] = useState(false);
+  const [showInsertDialog, setShowInsertDialog] = useState(false);
   const [ddlLoading, setDdlLoading] = useState(false);
   const [ddlSQL, setDdlSQL] = useState("");
   const [whereInput, setWhereInput] = useState("");
@@ -492,6 +495,14 @@ function TableDataTabContent({ tabId, innerTabId, database, table }: TableDataTa
     toast.success(t("query.copied"));
   }, [ddlLoading, ddlSQL, t]);
 
+  const handleInsertSuccess = useCallback(async () => {
+    setPage(0);
+    setEdits(new Map());
+    setApplyVersion((v) => v + 1);
+    await fetchData(0);
+    await fetchCount();
+  }, [fetchData, fetchCount]);
+
   const hasNext = totalPages != null ? page < totalPages - 1 : rows.length === pageSize;
   const hasPrev = page > 0;
   const hasEdits = edits.size > 0;
@@ -533,6 +544,15 @@ function TableDataTabContent({ tabId, innerTabId, database, table }: TableDataTa
         <Button variant="outline" size="sm" className="h-7 text-xs gap-1 shrink-0" onClick={handleApplyQuery}>
           <Filter className="h-3.5 w-3.5" />
           {t("query.applyFilter")}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs gap-1 shrink-0"
+          onClick={() => setShowInsertDialog(true)}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          {t("query.addRow")}
         </Button>
         <Button variant="outline" size="sm" className="h-7 text-xs gap-1 shrink-0" onClick={handleViewDDL}>
           <FileCode2 className="h-3.5 w-3.5" />
@@ -732,6 +752,17 @@ function TableDataTabContent({ tabId, innerTabId, database, table }: TableDataTa
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Insert row dialog */}
+      <InsertRowDialog
+        open={showInsertDialog}
+        onOpenChange={setShowInsertDialog}
+        assetId={assetId}
+        database={database}
+        table={table}
+        driver={driver}
+        onSuccess={handleInsertSuccess}
+      />
 
       {/* SQL preview / submit confirmation */}
       <SqlPreviewDialog

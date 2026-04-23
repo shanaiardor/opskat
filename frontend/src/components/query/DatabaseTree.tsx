@@ -5,11 +5,13 @@ import {
   ChevronDown,
   Database,
   Table2,
-  Plus,
+  SquarePen,
   RefreshCw,
   Loader2,
   AlertCircle,
   Search,
+  Plus,
+  Wrench,
 } from "lucide-react";
 import {
   Button,
@@ -23,6 +25,9 @@ import {
 } from "@opskat/ui";
 import { useQueryStore } from "@/stores/queryStore";
 import { useTabStore, type QueryTabMeta } from "@/stores/tabStore";
+import { CreateDatabaseDialog } from "./CreateDatabaseDialog";
+import { CreateTableDialog } from "./CreateTableDialog";
+import { AlterTableDialog } from "./AlterTableDialog";
 
 interface DatabaseTreeProps {
   tabId: string;
@@ -36,9 +41,17 @@ function quoteIdent(name: string, driver?: string): string {
 export function DatabaseTree({ tabId }: DatabaseTreeProps) {
   const { t } = useTranslation();
   const { dbStates, loadDatabases, toggleDbExpand, openTableTab, openSqlTab, refreshTables } = useQueryStore();
+  const [showCreateDatabase, setShowCreateDatabase] = useState(false);
+  const [showCreateTable, setShowCreateTable] = useState(false);
+  const [createTableDatabase, setCreateTableDatabase] = useState("");
+  const [showAlterTable, setShowAlterTable] = useState(false);
+  const [alterDatabase, setAlterDatabase] = useState("");
+  const [alterTableName, setAlterTableName] = useState("");
 
   const tab = useTabStore((s) => s.tabs.find((t) => t.id === tabId));
-  const driver = (tab?.meta as QueryTabMeta | undefined)?.driver;
+  const tabMeta = tab?.meta as QueryTabMeta | undefined;
+  const driver = tabMeta?.driver;
+  const defaultDatabase = tabMeta?.defaultDatabase ?? "";
 
   const dbState = dbStates[tabId];
   const [filter, setFilter] = useState("");
@@ -108,6 +121,17 @@ export function DatabaseTree({ tabId }: DatabaseTreeProps) {
             className="h-6 w-6"
             onClick={() => openSqlTab(tabId)}
             title={t("query.newSql")}
+            aria-label={t("query.newSql")}
+          >
+            <SquarePen className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => setShowCreateDatabase(true)}
+            title={t("query.createDatabase")}
+            aria-label={t("query.createDatabase")}
           >
             <Plus className="h-3.5 w-3.5" />
           </Button>
@@ -194,6 +218,15 @@ export function DatabaseTree({ tabId }: DatabaseTreeProps) {
                         <Search className="h-3.5 w-3.5" />
                         {t("query.newSql")}
                       </ContextMenuItem>
+                      <ContextMenuItem
+                        onClick={() => {
+                          setCreateTableDatabase(db);
+                          setShowCreateTable(true);
+                        }}
+                      >
+                        <Table2 className="h-3.5 w-3.5" />
+                        {t("query.addTable")}
+                      </ContextMenuItem>
                       <ContextMenuSeparator />
                       <ContextMenuItem onClick={() => refreshTables(tabId, db)}>
                         <RefreshCw className="h-3.5 w-3.5" />
@@ -240,6 +273,16 @@ export function DatabaseTree({ tabId }: DatabaseTreeProps) {
                                 </ContextMenuItem>
                                 <ContextMenuItem
                                   onClick={() => {
+                                    setAlterDatabase(db);
+                                    setAlterTableName(tbl);
+                                    setShowAlterTable(true);
+                                  }}
+                                >
+                                  <Wrench className="h-3.5 w-3.5" />
+                                  {t("query.alterTable")}
+                                </ContextMenuItem>
+                                <ContextMenuItem
+                                  onClick={() => {
                                     const tableName =
                                       driver === "postgresql"
                                         ? `"${tbl}"`
@@ -263,6 +306,61 @@ export function DatabaseTree({ tabId }: DatabaseTreeProps) {
           )}
         </div>
       </ScrollArea>
+
+      <CreateDatabaseDialog
+        open={showCreateDatabase}
+        onOpenChange={setShowCreateDatabase}
+        assetId={tabMeta?.assetId ?? 0}
+        defaultDatabase={defaultDatabase}
+        driver={driver}
+        onSuccess={() => loadDatabases(tabId)}
+      />
+
+      <CreateTableDialog
+        open={showCreateTable}
+        onOpenChange={(open) => {
+          setShowCreateTable(open);
+          if (!open) setCreateTableDatabase("");
+        }}
+        assetId={tabMeta?.assetId ?? 0}
+        database={createTableDatabase || defaultDatabase}
+        driver={driver}
+        onSuccess={() => {
+          const targetDb = createTableDatabase || defaultDatabase;
+          if (targetDb) {
+            refreshTables(tabId, targetDb);
+          }
+          setShowCreateTable(false);
+          setCreateTableDatabase("");
+        }}
+      />
+
+      <AlterTableDialog
+        open={showAlterTable}
+        onOpenChange={(open) => {
+          setShowAlterTable(open);
+          if (!open) {
+            setAlterDatabase("");
+            setAlterTableName("");
+          }
+        }}
+        assetId={tabMeta?.assetId ?? 0}
+        database={alterDatabase || defaultDatabase}
+        table={alterTableName}
+        driver={driver}
+        onSuccess={(nextTableName) => {
+          const targetDb = alterDatabase || defaultDatabase;
+          if (targetDb) {
+            refreshTables(tabId, targetDb);
+          }
+          if (nextTableName && targetDb) {
+            openTableTab(tabId, targetDb, nextTableName);
+          }
+          setShowAlterTable(false);
+          setAlterDatabase("");
+          setAlterTableName("");
+        }}
+      />
     </div>
   );
 }
