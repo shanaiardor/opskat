@@ -130,10 +130,11 @@ func (a *Agent) Chat(ctx context.Context, messages []Message, onEvent func(Strea
 
 		// 将 assistant 的回复（含 thinking + tool_calls）加入消息
 		assistantMsg := Message{
-			Role:      RoleAssistant,
-			Content:   contentBuf,
-			Thinking:  thinkingBuf,
-			ToolCalls: toolCalls,
+			Role:             RoleAssistant,
+			Content:          contentBuf,
+			Thinking:         thinkingBuf,
+			ReasoningContent: thinkingBuf,
+			ToolCalls:        toolCalls,
 		}
 		messages = append(messages, assistantMsg)
 

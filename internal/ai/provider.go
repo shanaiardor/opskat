@@ -14,11 +14,12 @@ const (
 
 // Message 对话消息
 type Message struct {
-	Role       Role       `json:"role"`
-	Content    string     `json:"content"`
-	Thinking   string     `json:"thinking,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"` // role=tool 时标识调用
+	Role             Role       `json:"role"`
+	Content          string     `json:"content"`
+	Thinking         string     `json:"thinking,omitempty"`          // Anthropic 格式
+	ReasoningContent string     `json:"reasoning_content,omitempty"` // DeepSeek/OpenAI 格式
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string     `json:"tool_call_id,omitempty"` // role=tool 时标识调用
 }
 
 // ToolCall AI 发起的工具调用

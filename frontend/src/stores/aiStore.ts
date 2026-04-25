@@ -1014,10 +1014,31 @@ async function _sendForConversation(convId: number, content: string, mentions?: 
     handleStreamEvent(convId, event);
   });
 
+  // 只有 DeepSeek 模型的 thinking_content 必须回传（否则 API 返回 400）
+  // 直接获取当前模型，避免依赖 state.modelName 未初始化的情况
+  let isDeepSeek = false;
+  try {
+    const active = await GetActiveAIProvider();
+    isDeepSeek = (active?.model || "").startsWith("deepseek");
+  } catch {
+    // 获取失败时跳过 thinking 处理
+  }
+
   const apiMessages = newMessages.map((m) => {
+    // 从 blocks 中提取 thinking 内容（仅 DeepSeek + assistant 角色需要）
+    let reasoningContent: string | undefined;
+    if (isDeepSeek && m.role === "assistant") {
+      for (const b of m.blocks) {
+        if (b.type === "thinking") {
+          reasoningContent = b.content;
+          break;
+        }
+      }
+    }
     return new ai.Message({
       role: m.role,
       content: m.content,
+      reasoningContent,
     });
   });
 
