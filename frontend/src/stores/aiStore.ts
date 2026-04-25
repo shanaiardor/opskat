@@ -845,9 +845,13 @@ function handleStreamEvent(convId: number, event: StreamEventData) {
     }
 
     case "retry": {
+      const reason = event.error ? `: ${event.error}` : "";
       const updated = updateLastAssistant(msgs, (msg) => ({
         ...msg,
-        blocks: appendText(msg.blocks, `\n\n*${i18n.t("ai.retrying", "重试中")} (${event.content})...*`),
+        blocks: appendText(
+          msg.blocks,
+          `\n\n*${i18n.t("ai.retrying", "重试中")} (${event.content})${reason}*`
+        ),
       }));
       if (updated) updateConversation(convId, { messages: updated });
       break;
