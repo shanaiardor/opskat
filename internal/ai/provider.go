@@ -57,10 +57,10 @@ type Usage struct {
 
 // StreamEvent 流式响应事件
 type StreamEvent struct {
-	Type      string     `json:"type"`                 // "content" | "tool_start" | "tool_result" | "tool_call" | "approval_request" | "approval_result" | "agent_start" | "agent_end" | "done" | "error" | "thinking" | "thinking_done" | "stopped" | "retry" | "usage"
-	Content   string     `json:"content,omitempty"`    // type=content/tool_result/approval_result/agent_end 时的文本
-	ToolName  string     `json:"tool_name,omitempty"`  // type=tool_start/tool_result 时的工具名
-	ToolInput string     `json:"tool_input,omitempty"` // type=tool_start 时的输入摘要
+	Type       string     `json:"type"`                   // "content" | "tool_start" | "tool_result" | "tool_call" | "approval_request" | "approval_result" | "agent_start" | "agent_end" | "done" | "error" | "thinking" | "thinking_done" | "stopped" | "retry" | "usage"
+	Content    string     `json:"content,omitempty"`      // type=content/tool_result/approval_result/agent_end 时的文本
+	ToolName   string     `json:"tool_name,omitempty"`    // type=tool_start/tool_result 时的工具名
+	ToolInput  string     `json:"tool_input,omitempty"`   // type=tool_start 时的输入摘要
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // type=tool_call 时的工具调用 (OpenAI)
 	ToolCallID string     `json:"tool_call_id,omitempty"` // type=tool_start/tool_result 时的工具调用 ID，前端用于跨 turn 还原 tool_calls 历史
 	ConfirmID  string     `json:"confirm_id,omitempty"`   // type=approval_request/approval_result 时的确认请求 ID

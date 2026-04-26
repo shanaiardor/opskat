@@ -225,9 +225,10 @@ func TestAgent_ToolStartAndResultCarryToolCallID(t *testing.T) {
 
 		var startEvent, resultEvent *StreamEvent
 		for i := range events {
-			if events[i].Type == "tool_start" {
+			switch events[i].Type {
+			case "tool_start":
 				startEvent = &events[i]
-			} else if events[i].Type == "tool_result" {
+			case "tool_result":
 				resultEvent = &events[i]
 			}
 		}
