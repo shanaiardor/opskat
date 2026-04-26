@@ -848,10 +848,7 @@ function handleStreamEvent(convId: number, event: StreamEventData) {
       const reason = event.error ? `: ${event.error}` : "";
       const updated = updateLastAssistant(msgs, (msg) => ({
         ...msg,
-        blocks: appendText(
-          msg.blocks,
-          `\n\n*${i18n.t("ai.retrying", "重试中")} (${event.content})${reason}*`
-        ),
+        blocks: appendText(msg.blocks, `\n\n*${i18n.t("ai.retrying", "重试中")} (${event.content})${reason}*`),
       }));
       if (updated) updateConversation(convId, { messages: updated });
       break;
@@ -1018,15 +1015,9 @@ async function _sendForConversation(convId: number, content: string, mentions?: 
     handleStreamEvent(convId, event);
   });
 
-  // 只有 DeepSeek 模型的 thinking_content 必须回传（否则 API 返回 400）
-  // 直接获取当前模型，避免依赖 state.modelName 未初始化的情况
-  let isDeepSeek = false;
-  try {
-    const active = await GetActiveAIProvider();
-    isDeepSeek = (active?.model || "").startsWith("deepseek");
-  } catch {
-    // 获取失败时跳过 thinking 处理
-  }
+  // 只有 DeepSeek 模型的 reasoning_content 必须原样回传（否则 thinking 模式多轮 API 返回 400）。
+  // modelName 在 checkConfigured 后写入 store，能调到此处时一定已 configured，故直接读取。
+  const isDeepSeek = useAIStore.getState().modelName.startsWith("deepseek");
 
   const apiMessages = newMessages.map((m) => {
     // 从 blocks 中提取 thinking 内容（仅 DeepSeek + assistant 角色需要）
