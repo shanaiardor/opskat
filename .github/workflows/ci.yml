@@ -76,6 +76,8 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.2
+      - name: Create frontend dist placeholder
+        run: mkdir -p frontend/dist && touch frontend/dist/.gitkeep
       - name: Generate Wails bindings
         run: wails generate module
       - name: Install dependencies
