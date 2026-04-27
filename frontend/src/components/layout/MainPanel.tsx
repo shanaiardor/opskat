@@ -14,6 +14,7 @@ import { CredentialManager } from "@/components/settings/CredentialManager";
 import { AuditLogPage } from "@/components/audit/AuditLogPage";
 import { PortForwardPage } from "@/components/forward/PortForwardPage";
 import { SnippetsPage } from "@/components/snippet/SnippetsPage";
+import { K8sClusterPage } from "@/components/k8s/K8sClusterPage";
 import { AIChatContent } from "@/components/ai/AIChatContent";
 import { DatabasePanel } from "@/components/query/DatabasePanel";
 import { RedisPanel } from "@/components/query/RedisPanel";
@@ -123,6 +124,11 @@ export function MainPanel({ onEditAsset, onDeleteAsset, onConnectAsset }: MainPa
                 <SnippetsPage />
               </div>
             );
+          case "k8s-cluster": {
+            const k8sAsset = meta.assetId ? assets.find((a) => a.ID === meta.assetId) : null;
+            if (!k8sAsset) return null;
+            return <K8sClusterPage asset={k8sAsset} />;
+          }
           default:
             if (meta.extensionName) {
               return <ExtensionPage extensionName={meta.extensionName} pageId={meta.pageId} assetId={meta.assetId} />;

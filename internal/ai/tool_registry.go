@@ -48,7 +48,7 @@ func AllToolDefs() []ToolDef {
 			Name:        "list_assets",
 			Description: "List managed remote server assets. Returns an array of assets (with ID, name, type, group, etc.). This is typically the first step to discover asset IDs for other operations. Supports filtering by type and group. Use get_asset to view asset description and connection details.",
 			Params: []ParamDef{
-				{Name: "asset_type", Type: ParamString, Description: `Filter by asset type. Supported: "ssh", "database", "redis", "mongodb". Omit to return all types.`},
+				{Name: "asset_type", Type: ParamString, Description: `Filter by asset type. Supported: "ssh", "database", "redis", "mongodb", "k8s". Omit to return all types.`},
 				{Name: "group_id", Type: ParamNumber, Description: "Filter by group ID. Omit or set to 0 to list all groups."},
 			},
 			Handler: handleListAssets,
@@ -73,10 +73,10 @@ func AllToolDefs() []ToolDef {
 		},
 		{
 			Name:        "add_asset",
-			Description: `Add a new asset to the inventory. Supports types: "ssh", "database", "redis", "mongodb". For database, specify driver ("mysql" or "postgresql"). Credentials (password / private_key) are stored encrypted; never echo them back to the user.`,
+			Description: `Add a new asset to the inventory. Supports types: "ssh", "database", "redis", "mongodb", "k8s". For database, specify driver ("mysql" or "postgresql"). For k8s, specify kubeconfig or api_server. Credentials (password / private_key / token) are stored encrypted; never echo them back to the user.`,
 			Params: []ParamDef{
 				{Name: "name", Type: ParamString, Description: `Display name for the asset.`, Required: true},
-				{Name: "type", Type: ParamString, Description: `Asset type: "ssh" (default), "database", "redis", or "mongodb".`},
+				{Name: "type", Type: ParamString, Description: `Asset type: "ssh" (default), "database", "redis", "mongodb", or "k8s".`},
 				{Name: "host", Type: ParamString, Description: "Hostname or IP address.", Required: true},
 				{Name: "port", Type: ParamNumber, Description: "Port number (default: 22 for SSH, 3306 for MySQL, 5432 for PostgreSQL, 6379 for Redis, 27017 for MongoDB).", Required: true},
 				{Name: "username", Type: ParamString, Description: "Login username.", Required: true},

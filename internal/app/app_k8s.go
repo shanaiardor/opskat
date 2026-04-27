@@ -1,0 +1,45 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/opskat/opskat/internal/k8s"
+	"github.com/opskat/opskat/internal/service/asset_svc"
+)
+
+func (a *App) GetK8sClusterInfo(assetID int64) (string, error) {
+	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	defer cancel()
+
+	asset, err := asset_svc.Asset().Get(ctx, assetID)
+	if err != nil {
+		return "", fmt.Errorf("get asset: %w", err)
+	}
+	if !asset.IsK8s() {
+		return "", fmt.Errorf("asset %d is not a K8S cluster", assetID)
+	}
+
+	cfg, err := asset.GetK8sConfig()
+	if err != nil {
+		return "", fmt.Errorf("get K8S config: %w", err)
+	}
+
+	token := cfg.Token
+	if token == "" && cfg.Kubeconfig == "" && cfg.ApiServer == "" {
+		return "", fmt.Errorf("no kubeconfig or api_server configured for this K8S asset")
+	}
+
+	info, err := k8s.GetClusterInfo(ctx, cfg.Kubeconfig, cfg.ApiServer, token)
+	if err != nil {
+		return "", fmt.Errorf("get K8S cluster info: %w", err)
+	}
+
+	result, err := json.Marshal(info)
+	if err != nil {
+		return "", fmt.Errorf("marshal cluster info: %w", err)
+	}
+	return string(result), nil
+}

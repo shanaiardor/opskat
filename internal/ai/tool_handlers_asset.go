@@ -140,13 +140,23 @@ func handleAddAsset(ctx context.Context, args map[string]any) (string, error) {
 	host := argString(args, "host")
 	port := argInt(args, "port")
 	username := argString(args, "username")
-	if name == "" || host == "" || port == 0 || username == "" {
-		return "", fmt.Errorf("missing required parameters: name, host, port, username")
-	}
-
 	assetType := argString(args, "type")
 	if assetType == "" {
 		assetType = asset_entity.AssetTypeSSH
+	}
+	if name == "" {
+		return "", fmt.Errorf("missing required parameter: name")
+	}
+	switch assetType {
+	case asset_entity.AssetTypeK8s:
+		// K8S uses kubeconfig or api_server instead of host/port
+		if argString(args, "kubeconfig") == "" && argString(args, "api_server") == "" {
+			return "", fmt.Errorf("missing required parameter: kubeconfig or api_server for k8s type")
+		}
+	default:
+		if host == "" || port == 0 || username == "" {
+			return "", fmt.Errorf("missing required parameters: host, port, username")
+		}
 	}
 	groupID := argInt64(args, "group_id")
 	description := argString(args, "description")

@@ -24,7 +24,7 @@ func cmdCreate(ctx context.Context, handlers map[string]ai.ToolHandlerFunc, args
 	switch resource {
 	case "asset":
 		fs := flag.NewFlagSet("create asset", flag.ExitOnError)
-		assetType := fs.String("type", "ssh", `Asset type: "ssh", "database", "redis", or "mongodb"`)
+		assetType := fs.String("type", "ssh", `Asset type: "ssh", "database", "redis", "mongodb", or "k8s"`)
 		name := fs.String("name", "", "Display name for the asset (required)")
 		host := fs.String("host", "", "Hostname or IP address (required)")
 		port := fs.Int("port", 0, "Port number (default: auto by type)")
@@ -195,7 +195,7 @@ func printCreateUsage() {
   opsctl create <resource> [flags]
 
 Resources:
-  asset     Create a new asset (ssh, database, or redis)
+  asset     Create a new asset (ssh, database, redis, mongodb, or k8s)
 
 Run 'opsctl create asset --help' for details.
 `)
@@ -211,8 +211,8 @@ Required Flags:
   --username <string>     Login username
 
 Optional Flags:
-  --type <string>         Asset type: "ssh" (default), "database", or "redis"
-  --port <int>            Port number (default: auto by type — 22/3306/5432/6379)
+  --type <string>         Asset type: "ssh" (default), "database", "redis", "mongodb", or "k8s"
+  --port <int>            Port number (default: auto by type — 22/3306/5432/6379/27017)
   --auth-type <string>    SSH auth method: "password" or "key" (SSH type only)
   --driver <string>       Database driver: "mysql" or "postgresql" (database type, required)
   --database <string>     Default database name (database type)
@@ -241,6 +241,7 @@ Examples:
   opsctl create asset --type database --driver postgresql --name "Analytics" --host pg.internal --port 5432 --username readonly --read-only
   opsctl create asset --type redis --name "Cache" --host redis.internal --username default
   opsctl create asset --type database --driver mysql --name "DB via SSH" --host 127.0.0.1 --username app --ssh-asset web-server
+  opsctl create asset --type k8s --name "Prod Cluster" --api-server https://k8s-api.example.com:6443 --token <token>
 `)
 }
 

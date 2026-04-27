@@ -71,7 +71,9 @@
     "submit": "提交",
     "openInTab": "在新标签打开",
     "editPermission": "编辑权限",
-    "open": "打开"
+    "open": "打开",
+    "retry": "重试",
+    "refresh": "刷新"
   },
   "tab": {
     "close": "关闭",
@@ -253,6 +255,17 @@
     "k8sNamespace": "命名空间",
     "k8sContext": "Context",
     "k8sToken": "Token",
+    "k8sKubeconfig": "Kubeconfig",
+    "k8sKubeconfigPlaceholder": "粘贴 kubeconfig YAML 内容...",
+    "k8sTokenPlaceholder": "Bearer token",
+    "k8sClusterInfo": "集群信息",
+    "k8sClusterOverview": "集群概览",
+    "k8sVersion": "版本",
+    "k8sPlatform": "平台",
+    "k8sNodes": "节点",
+    "k8sNoNodes": "未找到节点",
+    "k8sNamespaces": "命名空间",
+    "k8sNoData": "暂无集群数据",
     "mongoUri": "连接 URI",
     "mongoUriPlaceholder": "mongodb://user:pass@host:port",
     "mongoReplicaSet": "副本集",

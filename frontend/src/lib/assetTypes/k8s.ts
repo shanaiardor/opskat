@@ -5,7 +5,7 @@ import { K8sDetailInfoCard } from "@/components/asset/detail/K8sDetailInfoCard";
 registerAssetType({
   type: "k8s",
   icon: Container,
-  canConnect: false,
+  canConnect: true,
   canConnectInNewTab: false,
   connectAction: "terminal",
   DetailInfoCard: K8sDetailInfoCard,

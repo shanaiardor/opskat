@@ -38,6 +38,8 @@ func migration202603220001() *gormigrate.Migration {
 					command_policy TEXT,
 					query_policy   TEXT,
 					redis_policy   TEXT,
+					mongo_policy   TEXT,
+					k8s_policy     TEXT,
 					sort_order     INTEGER DEFAULT 0,
 					createtime     INTEGER,
 					updatetime     INTEGER
