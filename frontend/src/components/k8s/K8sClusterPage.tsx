@@ -15,6 +15,7 @@ import {
   ChevronRight,
   ChevronDown,
   Search,
+  ScrollText,
 } from "lucide-react";
 import type { asset_entity } from "../../../wailsjs/go/models";
 import {
@@ -26,10 +27,7 @@ import {
   GetK8sNamespaceConfigMaps,
   GetK8sNamespaceSecrets,
   GetK8sPodDetail,
-  StartK8sPodLogs,
-  StopK8sPodLogs,
 } from "../../../wailsjs/go/app/App";
-import { EventsOn, EventsOff } from "../../../wailsjs/runtime/runtime";
 import { useResizeHandle } from "@opskat/ui";
 import { InfoItem } from "@/components/asset/detail/InfoItem";
 import { K8sSectionCard } from "./K8sSectionCard";
@@ -243,13 +241,8 @@ export function K8sClusterPage({ asset }: Props) {
   const [podDetails, setPodDetails] = useState<Record<string, PodDetail>>({});
   const [loadingPodDetails, setLoadingPodDetails] = useState<Set<string>>(new Set());
   const [podDetailErrors, setPodDetailErrors] = useState<Record<string, string>>({});
-  const [logStreamID, setLogStreamID] = useState<string | null>(null);
-  const [logContainer, setLogContainer] = useState("");
-  const [logTailLines, setLogTailLines] = useState(200);
-  const [logError, setLogError] = useState<string | null>(null);
+  const [logTabStates, setLogTabStates] = useState<Record<string, import("./K8sLogsPanel").LogTabState>>({});
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const logStreamIDRef = useRef<string | null>(null);
-  const logTerminalRef = useRef<{ write: (data: string) => void; clear: () => void } | null>(null);
   const {
     size: sidebarWidth,
     isResizing: sidebarResizing,
@@ -604,60 +597,15 @@ export function K8sClusterPage({ asset }: Props) {
     [asset.ID, podDetails, loadingPodDetails]
   );
 
-  const stopLogStream = useCallback(() => {
-    const sid = logStreamIDRef.current;
-    if (sid) {
-      StopK8sPodLogs(sid);
-    }
-    logStreamIDRef.current = null;
-    setLogStreamID(null);
-  }, []);
-
-  const startLogStream = useCallback(
-    (ns: string, podName: string, container: string, tailLines: number) => {
-      stopLogStream();
-      logTerminalRef.current?.clear();
-      setLogError(null);
-      setLogContainer(container);
-
-      StartK8sPodLogs(asset.ID, ns, podName, container, tailLines)
-        .then((streamID: string) => {
-          logStreamIDRef.current = streamID;
-          setLogStreamID(streamID);
-          const dataEvent = "k8s:log:" + streamID;
-          const errEvent = "k8s:logerr:" + streamID;
-          const endEvent = "k8s:logend:" + streamID;
-
-          EventsOn(dataEvent, (data: string) => {
-            const decoded = atob(data);
-            logTerminalRef.current?.write(decoded);
-          });
-
-          EventsOn(errEvent, (err: string) => {
-            if (err === "context canceled" || err.includes("context canceled")) return;
-            setLogError(err);
-          });
-
-          EventsOn(endEvent, () => {
-            setLogStreamID(null);
-            EventsOff(dataEvent);
-            EventsOff(errEvent);
-            EventsOff(endEvent);
-          });
-        })
-        .catch((e: unknown) => {
-          setLogError(String(e));
-        });
+  const updateLogTabState = useCallback(
+    (tabId: string, patch: Partial<import("./K8sLogsPanel").LogTabState>) => {
+      setLogTabStates((prev) => {
+        const existing = prev[tabId] || { logStreamID: null, logContainer: "", logTailLines: 200, logError: null };
+        return { ...prev, [tabId]: { ...existing, ...patch } };
+      });
     },
-    [asset.ID, stopLogStream]
+    []
   );
-
-  useEffect(() => {
-    return () => {
-      stopLogStream();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
     loadInfo();
@@ -687,15 +635,41 @@ export function K8sClusterPage({ asset }: Props) {
       const ns = parts[1];
       const podName = parts.slice(2).join(":");
       loadPodDetail(ns, podName);
-      // 重置日志状态，避免旧 Pod 的容器名残留
-      stopLogStream();
-      setLogContainer("");
-      logTerminalRef.current?.clear();
-      setLogError(null);
     }
   };
 
+  const openLogTab = (ns: string, podName: string, container: string) => {
+    const id = `log:${ns}:${podName}`;
+    const label = `${t("asset.k8sPodLogs")}: ${podName}`;
+    if (!innerTabs.some((t) => t.id === id)) {
+      setInnerTabs((prev) => [...prev, { id, label }]);
+      setLogTabStates((prev) => ({
+        ...prev,
+        [id]: {
+          logStreamID: null,
+          logContainer: container,
+          logTailLines: 200,
+          logError: null,
+        },
+      }));
+    }
+    setActiveTabId(id);
+  };
+
   const closeTab = (id: InnerTabId) => {
+    if (id.startsWith("log:")) {
+      const state = logTabStates[id];
+      if (state?.logStreamID) {
+        import("../../../wailsjs/go/app/App").then(({ StopK8sPodLogs }) => {
+          StopK8sPodLogs(state.logStreamID!);
+        });
+      }
+      setLogTabStates((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
     const idx = innerTabs.findIndex((t) => t.id === id);
     const next = innerTabs.filter((t) => t.id !== id);
     setInnerTabs(next);
@@ -1348,6 +1322,8 @@ export function K8sClusterPage({ asset }: Props) {
                     <Box className="h-3 w-3" />
                   ) : tab.id.startsWith("pod:") ? (
                     <Circle className="h-3 w-3" />
+                  ) : tab.id.startsWith("log:") ? (
+                    <ScrollText className="h-3 w-3" />
                   ) : tab.id.startsWith("svc:") ? (
                     <Container className="h-3 w-3" />
                   ) : tab.id.startsWith("cm:") ? (
@@ -1627,29 +1603,18 @@ export function K8sClusterPage({ asset }: Props) {
                     )}
                   />
 
-                  <K8sLogsPanel
-                    ref={logTerminalRef}
-                    containers={detail.containers}
-                    namespace={detail.namespace}
-                    podName={detail.name}
-                    logContainer={logContainer}
-                    logTailLines={logTailLines}
-                    logStreamID={logStreamID}
-                    logError={logError}
-                    onContainerChange={(container) => {
-                      setLogContainer(container);
-                      if (logStreamID) {
-                        stopLogStream();
-                        startLogStream(detail.namespace, detail.name, container, logTailLines);
-                      }
-                    }}
-                    onTailLinesChange={(lines) => setLogTailLines(lines)}
-                    onStart={() => {
-                      const container = logContainer || detail.containers[0]?.name || "";
-                      startLogStream(detail.namespace, detail.name, container, logTailLines);
-                    }}
-                    onStop={stopLogStream}
-                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        const container = detail.containers[0]?.name || "";
+                        openLogTab(detail.namespace, detail.name, container);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs hover:bg-muted"
+                    >
+                      <ScrollText className="h-3 w-3" />
+                      {t("asset.k8sPodLogs")}
+                    </button>
+                  </div>
 
                   <K8sTableSection
                     title={t("asset.k8sPodEvents")}
@@ -1684,6 +1649,28 @@ export function K8sClusterPage({ asset }: Props) {
                   <K8sTagList tags={detail.labels} title={t("asset.k8sPodLabels")} defaultCollapsed />
 
                   <K8sCodeBlock code={detail.yaml} title={t("asset.k8sPodYAML")} defaultCollapsed />
+                </div>
+              );
+            })()}
+
+          {activeTabId.startsWith("log:") &&
+            (() => {
+              const parts = activeTabId.split(":");
+              const ns = parts[1];
+              const podName = parts.slice(2).join(":");
+              const state = logTabStates[activeTabId];
+              const detail = podDetails[`${ns}/${podName}`];
+              if (!state || !detail) return null;
+              return (
+                <div className="max-w-5xl mx-auto p-4">
+                  <K8sLogsPanel
+                    assetId={asset.ID}
+                    containers={detail.containers}
+                    namespace={ns}
+                    podName={podName}
+                    state={state}
+                    onStateChange={(patch) => updateLogTabState(activeTabId, patch)}
+                  />
                 </div>
               );
             })()}
