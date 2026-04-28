@@ -1684,7 +1684,7 @@ export function K8sClusterPage({ asset }: Props) {
 
                   <K8sTagList tags={detail.labels} title={t("asset.k8sPodLabels")} />
 
-                  <K8sCodeBlock code={detail.yaml} title={t("asset.k8sPodYAML")} />
+                  <K8sCodeBlock code={detail.yaml} title={t("asset.k8sPodYAML")} defaultCollapsed />
                 </div>
               );
             })()}
