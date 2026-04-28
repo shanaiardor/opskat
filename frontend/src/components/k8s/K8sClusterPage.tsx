@@ -1662,7 +1662,7 @@ export function K8sClusterPage({ asset }: Props) {
               const detail = podDetails[`${ns}/${podName}`];
               if (!state || !detail) return null;
               return (
-                <div className="max-w-5xl mx-auto p-4">
+                <div className="h-full flex flex-col p-4">
                   <K8sLogsPanel
                     assetId={asset.ID}
                     containers={detail.containers}

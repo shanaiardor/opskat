@@ -83,5 +83,5 @@ export const K8sLogTerminal = forwardRef<K8sLogTerminalHandle>(function K8sLogTe
     fitAddonRef.current?.fit();
   }, [xtermTheme, fontSize, scrollback]);
 
-  return <div ref={wrapperRef} className="h-80 w-full rounded-lg overflow-hidden" />;
+  return <div ref={wrapperRef} className="flex-1 w-full rounded-lg overflow-hidden min-h-0" />;
 })
