@@ -15,7 +15,10 @@ import (
 	"github.com/opskat/opskat/internal/model/entity/asset_entity"
 	"github.com/opskat/opskat/internal/service/asset_svc"
 	"github.com/opskat/opskat/internal/sshpool"
+
+	"github.com/cago-frame/cago/pkg/logger"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	"go.uber.org/zap"
 )
 
 func (a *App) GetK8sClusterInfo(assetID int64) (string, error) {
@@ -304,7 +307,11 @@ func (a *App) StartK8sPodLogs(assetID int64, namespace, podName, container strin
 	}
 
 	go func() {
-		defer reader.Close()
+		defer func() {
+			if closeErr := reader.Close(); closeErr != nil {
+				logger.Default().Warn("close k8s log reader", zap.Error(closeErr))
+			}
+		}()
 		defer cancel()
 		defer a.k8sLogStreams.Delete(streamID)
 

@@ -265,6 +265,8 @@
     "k8sContext": "Context",
     "k8sKubeconfig": "Kubeconfig",
     "k8sKubeconfigPlaceholder": "Paste kubeconfig YAML content...",
+    "k8sRevealKubeconfig": "Reveal kubeconfig",
+    "k8sEnterKubeconfig": "Enter kubeconfig",
     "k8sClusterInfo": "Cluster Info",
     "k8sClusterOverview": "Cluster Overview",
     "k8sVersion": "Version",

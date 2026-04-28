@@ -265,6 +265,8 @@
     "k8sContext": "Context",
     "k8sKubeconfig": "Kubeconfig",
     "k8sKubeconfigPlaceholder": "粘贴 kubeconfig YAML 内容...",
+    "k8sRevealKubeconfig": "点击查看 kubeconfig",
+    "k8sEnterKubeconfig": "输入 kubeconfig",
     "k8sClusterInfo": "集群信息",
     "k8sClusterOverview": "集群概览",
     "k8sVersion": "版本",

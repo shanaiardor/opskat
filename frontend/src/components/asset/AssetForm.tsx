@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Loader2, PlugZap } from "lucide-react";
+import { Eye, EyeOff, Loader2, PlugZap } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -221,6 +221,7 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
   const [kubeconfig, setKubeconfig] = useState("");
   const [k8sNamespace, setK8sNamespace] = useState("");
   const [k8sContext, setK8sContext] = useState("");
+  const [showKubeconfig, setShowKubeconfig] = useState(false);
 
   // Extension config
   const [extConfig, setExtConfig] = useState<Record<string, unknown>>({});
@@ -455,6 +456,7 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
       setKubeconfig(cfg.kubeconfig || "");
       setK8sNamespace(cfg.namespace || "");
       setK8sContext(cfg.context || "");
+      setShowKubeconfig(false);
       setSshTunnelId(asset.sshTunnelId || cfg.ssh_asset_id || 0);
       setHost(""); // K8S uses kubeconfig, not host
       setPort(6443);
@@ -539,6 +541,7 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
     setKubeconfig("");
     setK8sNamespace("");
     setK8sContext("");
+    setShowKubeconfig(false);
   };
 
   const handleTypeChange = (newType: AssetType) => {
@@ -1155,13 +1158,31 @@ export function AssetForm({ open, onOpenChange, editAsset, defaultGroupId = 0 }:
             <div className="grid gap-3 border rounded-lg p-4">
               <div className="grid gap-2">
                 <Label>{t("asset.k8sKubeconfig")}</Label>
-                <Textarea
-                  value={kubeconfig}
-                  onChange={(e) => setKubeconfig(e.target.value)}
-                  placeholder={t("asset.k8sKubeconfigPlaceholder") || "Paste kubeconfig YAML content..."}
-                  rows={4}
-                  className="font-mono text-xs"
-                />
+                {showKubeconfig ? (
+                  <div className="relative min-w-0 overflow-hidden">
+                    <Textarea
+                      value={kubeconfig}
+                      onChange={(e) => setKubeconfig(e.target.value)}
+                      placeholder={t("asset.k8sKubeconfigPlaceholder") || "Paste kubeconfig YAML content..."}
+                      rows={4}
+                      className="font-mono text-xs pr-9 whitespace-pre-wrap break-all"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-1 top-2 h-7 w-7"
+                      onClick={() => setShowKubeconfig(false)}
+                    >
+                      <EyeOff className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ) : (
+                  <Button type="button" variant="outline" className="w-full" onClick={() => setShowKubeconfig(true)}>
+                    <Eye className="h-3.5 w-3.5 mr-1" />
+                    {editAsset ? t("asset.k8sRevealKubeconfig") : t("asset.k8sEnterKubeconfig")}
+                  </Button>
+                )}
               </div>
               <div className="grid gap-2">
                 <Label>{t("asset.k8sNamespace")}</Label>
