@@ -34,6 +34,16 @@ import {
 } from "../../../wailsjs/go/app/App";
 import { EventsOn, EventsOff } from "../../../wailsjs/runtime/runtime";
 import { useResizeHandle } from "@opskat/ui";
+import { InfoItem } from "@/components/asset/detail/InfoItem";
+import { K8sSectionCard } from "./K8sSectionCard";
+import { K8sResourceHeader } from "./K8sResourceHeader";
+import { K8sMetadataGrid } from "./K8sMetadataGrid";
+import { K8sTableSection } from "./K8sTableSection";
+import { K8sConditionList } from "./K8sConditionList";
+import { K8sTagList } from "./K8sTagList";
+import { K8sCodeBlock } from "./K8sCodeBlock";
+import { K8sLogsPanel } from "./K8sLogsPanel";
+import { getK8sStatusColor, getContainerStateColor, statusVariantToClass } from "./utils";
 
 interface NodeInfo {
   name: string;
@@ -1380,39 +1390,27 @@ export function K8sClusterPage({ asset }: Props) {
 
         <div className="flex-1 overflow-y-auto">
           {activeTabId === "overview" && (
-            <div className="max-w-4xl mx-auto p-6 space-y-6">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                <div className="rounded-lg bg-muted/50 p-4">
-                  <div className="text-xs text-muted-foreground mb-1">{t("asset.k8sVersion")}</div>
-                  <div className="text-lg font-mono font-semibold">{info.version}</div>
+            <div className="max-w-5xl mx-auto p-4 space-y-4">
+              <K8sSectionCard>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  <InfoItem label={t("asset.k8sVersion")} value={info.version} mono />
+                  <InfoItem label={t("asset.k8sPlatform")} value={info.platform} mono />
+                  <InfoItem label={t("asset.k8sNodes")} value={String(info.nodes.length)} mono />
                 </div>
-                <div className="rounded-lg bg-muted/50 p-4">
-                  <div className="text-xs text-muted-foreground mb-1">{t("asset.k8sPlatform")}</div>
-                  <div className="text-lg font-mono font-semibold">{info.platform}</div>
-                </div>
-                <div className="rounded-lg bg-muted/50 p-4">
-                  <div className="text-xs text-muted-foreground mb-1">{t("asset.k8sNodes")}</div>
-                  <div className="text-lg font-mono font-semibold">{info.nodes.length}</div>
-                </div>
-              </div>
+              </K8sSectionCard>
 
-              <div className="rounded-xl border bg-card p-6">
-                <h3 className="text-sm font-semibold mb-3">{t("asset.k8sNodes")}</h3>
+              <K8sSectionCard title={t("asset.k8sNodes")}>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {info.nodes.map((node) => (
                     <div
                       key={node.name}
-                      className="rounded-lg border p-4 cursor-pointer hover:bg-muted/30 transition-colors"
+                      className="rounded-lg border p-3 cursor-pointer hover:bg-muted/30 transition-colors"
                       onClick={() => openTab(`node:${node.name}`, node.name)}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <span className="font-mono text-sm font-medium">{node.name}</span>
                         <span
-                          className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                            node.status === "True"
-                              ? "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400"
-                              : "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400"
-                          }`}
+                          className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusVariantToClass(getK8sStatusColor(node.status))}`}
                         >
                           {node.status === "True" ? "Ready" : node.status}
                         </span>
@@ -1426,10 +1424,9 @@ export function K8sClusterPage({ asset }: Props) {
                     </div>
                   ))}
                 </div>
-              </div>
+              </K8sSectionCard>
 
-              <div className="rounded-xl border bg-card p-6">
-                <h3 className="text-sm font-semibold mb-3">{t("asset.k8sNamespaces")}</h3>
+              <K8sSectionCard title={t("asset.k8sNamespaces")}>
                 <div className="flex flex-wrap gap-2">
                   {info.namespaces.map((ns) => (
                     <span
@@ -1443,63 +1440,45 @@ export function K8sClusterPage({ asset }: Props) {
                     </span>
                   ))}
                 </div>
-              </div>
+              </K8sSectionCard>
             </div>
           )}
 
           {activeNode && (
-            <div className="max-w-4xl mx-auto p-6 space-y-6">
-              <div className="rounded-xl border bg-card p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-semibold">{activeNode.name}</h3>
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      activeNode.status === "True"
-                        ? "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400"
-                        : "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400"
-                    }`}
-                  >
-                    {activeNode.status === "True" ? "Ready" : activeNode.status}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                  <div className="rounded-lg bg-muted/50 p-4">
-                    <div className="text-xs text-muted-foreground mb-1">OS</div>
-                    <div className="font-mono font-medium">{activeNode.os}</div>
-                  </div>
-                  <div className="rounded-lg bg-muted/50 p-4">
-                    <div className="text-xs text-muted-foreground mb-1">Architecture</div>
-                    <div className="font-mono font-medium">{activeNode.arch}</div>
-                  </div>
-                  <div className="rounded-lg bg-muted/50 p-4">
-                    <div className="text-xs text-muted-foreground mb-1">Kubernetes</div>
-                    <div className="font-mono font-medium">v{activeNode.version}</div>
-                  </div>
-                  <div className="rounded-lg bg-muted/50 p-4">
-                    <div className="text-xs text-muted-foreground mb-1">CPU</div>
-                    <div className="font-mono font-medium">{activeNode.cpu}</div>
-                  </div>
-                  <div className="rounded-lg bg-muted/50 p-4">
-                    <div className="text-xs text-muted-foreground mb-1">Memory</div>
-                    <div className="font-mono font-medium">{activeNode.memory}</div>
-                  </div>
-                  <div className="rounded-lg bg-muted/50 p-4">
-                    <div className="text-xs text-muted-foreground mb-1">Roles</div>
-                    <div className="font-mono font-medium">{activeNode.roles.join(", ")}</div>
-                  </div>
-                </div>
-              </div>
+            <div className="max-w-5xl mx-auto p-4 space-y-4">
+              <K8sSectionCard>
+                <K8sResourceHeader
+                  name={activeNode.name}
+                  status={{
+                    text: activeNode.status === "True" ? "Ready" : activeNode.status,
+                    variant: getK8sStatusColor(activeNode.status),
+                  }}
+                />
+                <K8sMetadataGrid
+                  items={[
+                    { label: "OS", value: activeNode.os, mono: true },
+                    { label: "Architecture", value: activeNode.arch, mono: true },
+                    { label: "Kubernetes", value: `v${activeNode.version}`, mono: true },
+                    { label: "CPU", value: activeNode.cpu, mono: true },
+                    { label: "Memory", value: activeNode.memory, mono: true },
+                    { label: "Roles", value: activeNode.roles.join(", "), mono: true },
+                  ]}
+                />
+              </K8sSectionCard>
             </div>
           )}
 
           {activeNs && (
-            <div className="max-w-4xl mx-auto p-6 space-y-6">
-              <div className="rounded-xl border bg-card p-6">
-                <h3 className="text-base font-semibold mb-1">{activeNs.name}</h3>
-                <p className="text-xs text-muted-foreground mb-4">
-                  {t("asset.k8sNamespace")}:{" "}
-                  <span className={activeNs.status === "Active" ? "text-green-600" : ""}>{activeNs.status}</span>
-                </p>
+            <div className="max-w-5xl mx-auto p-4 space-y-4">
+              <K8sSectionCard>
+                <K8sResourceHeader
+                  name={activeNs.name}
+                  subtitle={`${t("asset.k8sNamespace")}: ${activeNs.status}`}
+                  status={{
+                    text: activeNs.status,
+                    variant: activeNs.status === "Active" ? "success" : "neutral",
+                  }}
+                />
                 {loadingNamespaces.has(activeNs.name) ? (
                   <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -1522,26 +1501,18 @@ export function K8sClusterPage({ asset }: Props) {
                     <p className="text-xs mt-1 opacity-70">{namespaceErrors[activeNs.name]}</p>
                   </div>
                 ) : namespaceResources[activeNs.name] ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {RESOURCE_TYPES.map((rt) => {
+                  <K8sMetadataGrid
+                    items={RESOURCE_TYPES.map((rt) => {
                       const count = namespaceResources[activeNs.name][rt.key] as number;
-                      return (
-                        <div
-                          key={rt.key}
-                          className="rounded-lg border p-3 cursor-pointer hover:bg-muted/30 transition-colors"
-                          onClick={() => openTab(`ns-res:${activeNs.name}:${rt.key}`, `${rt.key} (${activeNs.name})`)}
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            <rt.icon className="h-4 w-4 text-muted-foreground" style={{}} />
-                            <span className="text-sm font-medium">{t(rt.labelKey)}</span>
-                          </div>
-                          <span className="text-2xl font-mono font-semibold">{count}</span>
-                        </div>
-                      );
+                      return {
+                        label: t(rt.labelKey),
+                        value: String(count),
+                        mono: true,
+                      };
                     })}
-                  </div>
+                  />
                 ) : null}
-              </div>
+              </K8sSectionCard>
             </div>
           )}
 
@@ -1554,18 +1525,15 @@ export function K8sClusterPage({ asset }: Props) {
               const res = namespaceResources[ns];
               const count = res ? (res[resKey as keyof NamespaceResourcesData] as number) : 0;
               return (
-                <div className="max-w-4xl mx-auto p-6 space-y-6">
-                  <div className="rounded-xl border bg-card p-6">
+                <div className="max-w-5xl mx-auto p-4 space-y-4">
+                  <K8sSectionCard>
                     <div className="flex items-center gap-3 mb-4">
                       {rt && <rt.icon className="h-5 w-5 text-muted-foreground" style={{}} />}
-                      <h3 className="text-base font-semibold">{rt ? t(rt.labelKey) : resKey}</h3>
+                      <h3 className="font-mono text-sm font-medium">{rt ? t(rt.labelKey) : resKey}</h3>
                       <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{ns}</span>
                     </div>
-                    <div className="rounded-lg bg-muted/50 p-4">
-                      <div className="text-xs text-muted-foreground mb-1">{t("asset.k8sNamespaceResources")}</div>
-                      <div className="text-2xl font-mono font-semibold">{count}</div>
-                    </div>
-                  </div>
+                    <K8sMetadataGrid items={[{ label: t("asset.k8sNamespaceResources"), value: String(count), mono: true }]} />
+                  </K8sSectionCard>
                 </div>
               );
             })()}
@@ -1610,23 +1578,8 @@ export function K8sClusterPage({ asset }: Props) {
               }
               if (!detail) return null;
 
-              const getStatusColor = (status: string) => {
-                if (status === "Running") return "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400";
-                if (status === "Pending")
-                  return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-400";
-                return "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400";
-              };
-
-              const getContainerStateColor = (state: string) => {
-                if (state.startsWith("Running"))
-                  return "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400";
-                if (state.startsWith("Waiting"))
-                  return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-400";
-                return "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400";
-              };
-
               return (
-                <div className="max-w-5xl mx-auto p-6 space-y-6">
+                <div className="max-w-5xl mx-auto p-4 space-y-4">
                   <div className="rounded-xl border bg-card p-6">
                     <div className="flex items-center justify-between mb-4">
                       <div>
