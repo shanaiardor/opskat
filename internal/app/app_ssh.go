@@ -5,10 +5,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
 	"github.com/opskat/opskat/internal/model/entity/asset_entity"
+	"github.com/opskat/opskat/internal/pkg/dirsync"
 	"github.com/opskat/opskat/internal/service/asset_svc"
 	"github.com/opskat/opskat/internal/service/credential_svc"
 	"github.com/opskat/opskat/internal/service/ssh_svc"
@@ -71,6 +73,9 @@ func (a *App) ConnectSSH(req SSHConnectRequest) (string, error) {
 		},
 		OnClosed: func(sid string) {
 			wailsRuntime.EventsEmit(a.ctx, "ssh:closed:"+sid, nil)
+		},
+		OnSync: func(sid string, state ssh_svc.DirectorySyncState) {
+			wailsRuntime.EventsEmit(a.ctx, "ssh:sync:"+sid, state)
 		},
 	}
 
@@ -178,6 +183,9 @@ func (a *App) ConnectSSHAsync(req SSHConnectRequest) (string, error) {
 			},
 			OnClosed: func(sid string) {
 				wailsRuntime.EventsEmit(a.ctx, "ssh:closed:"+sid, nil)
+			},
+			OnSync: func(sid string, state ssh_svc.DirectorySyncState) {
+				wailsRuntime.EventsEmit(a.ctx, "ssh:sync:"+sid, state)
 			},
 			OnProgress: func(step, message string) {
 				emitEvent(SSHConnectEvent{Type: "progress", Step: step, Message: message})
@@ -392,6 +400,57 @@ func (a *App) ResizeSSH(sessionID string, cols int, rows int) error {
 	return sess.Resize(cols, rows)
 }
 
+// GetSSHSyncState 返回会话当前的目录同步状态。
+func (a *App) GetSSHSyncState(sessionID string) (ssh_svc.DirectorySyncState, error) {
+	return a.sshManager.GetSessionSyncState(sessionID)
+}
+
+// ChangeSSHDirectory 请求当前终端切换到指定目录。
+// 若目录同步尚未启用，会自动注入钩子（一次性，会话内后续切换不再注入）。
+func (a *App) ChangeSSHDirectory(sessionID, targetPath string) error {
+	sess, ok := a.sshManager.GetSession(sessionID)
+	if !ok {
+		return dirsync.Error(dirsync.CodeSessionNotFound)
+	}
+
+	state := sess.GetSyncState()
+	if !state.Supported {
+		if err := sess.EnableSync(); err != nil {
+			return err
+		}
+		state = sess.GetSyncState()
+	}
+	if !state.CwdKnown {
+		// EnableSync resolved init:pid; the first prompt nonce may not have
+		// arrived yet. Surface a typed retry error so the frontend can debounce.
+		return dirsync.Error(dirsync.CodeCwdUnknown)
+	}
+
+	resolvedPath := targetPath
+	if !strings.HasPrefix(resolvedPath, "/") {
+		resolvedPath = path.Join(state.Cwd, resolvedPath)
+	}
+	resolvedPath = path.Clean(resolvedPath)
+
+	expectedPath, err := a.sftpService.ResolveDirectory(sessionID, resolvedPath)
+	if err != nil {
+		return err
+	}
+
+	return sess.ChangeDirectoryTo(resolvedPath, expectedPath)
+}
+
+// EnableSSHSync 显式启用目录同步（用于面板"跟随终端"按钮的首次点击）。
+// 注入钩子需要终端处于 shell 提示符状态；若用户处于 vim/less/tmux 等前台
+// 程序中，会在 ~3s 后超时返回 DIRSYNC_TIMEOUT，前端应提示用户先退出该程序。
+func (a *App) EnableSSHSync(sessionID string) error {
+	sess, ok := a.sshManager.GetSession(sessionID)
+	if !ok {
+		return dirsync.Error(dirsync.CodeSessionNotFound)
+	}
+	return sess.EnableSync()
+}
+
 // SplitSSH 在已有会话的连接上创建新会话（分割窗格复用连接）
 func (a *App) SplitSSH(existingSessionID string, cols, rows int) (string, error) {
 	return a.sshManager.NewSessionFrom(existingSessionID, cols, rows,
@@ -400,6 +459,9 @@ func (a *App) SplitSSH(existingSessionID string, cols, rows int) (string, error)
 		},
 		func(sid string) {
 			wailsRuntime.EventsEmit(a.ctx, "ssh:closed:"+sid, nil)
+		},
+		func(sid string, state ssh_svc.DirectorySyncState) {
+			wailsRuntime.EventsEmit(a.ctx, "ssh:sync:"+sid, state)
 		},
 	)
 }
