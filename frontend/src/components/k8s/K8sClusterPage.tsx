@@ -1585,7 +1585,9 @@ export function K8sClusterPage({ asset }: Props) {
                                                       <span
                                                         className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                                                           pod.status === "Running"
-                                                            ? "bg-green-500"
+                                                            ? pod.ready.split("/")[0] === pod.ready.split("/")[1]
+                                                              ? "bg-green-500"
+                                                              : "bg-yellow-500"
                                                             : pod.status === "Pending"
                                                               ? "bg-yellow-500"
                                                               : "bg-red-500"
@@ -1693,7 +1695,9 @@ export function K8sClusterPage({ asset }: Props) {
                                             <span
                                               className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                                                 pod.status === "Running"
-                                                  ? "bg-green-500"
+                                                  ? pod.ready.split("/")[0] === pod.ready.split("/")[1]
+                                                    ? "bg-green-500"
+                                                    : "bg-yellow-500"
                                                   : pod.status === "Pending"
                                                     ? "bg-yellow-500"
                                                     : "bg-red-500"
